@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>תצוגת מסמך - FlowCRM</title>
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1e3a5f">
+</head>
+<body>
+<div class="app-shell">
+  <div class="main" style="max-width:900px;">
+    <div class="btn-row no-print" style="margin-bottom:16px;">
+      <button class="btn btn-primary" id="printBtn">🖨 הדפס / שמור PDF</button>
+      <button class="btn" id="editBtn">✏ עריכה</button>
+      <button class="btn" id="shareBtn">📤 שתף</button>
+      <a href="documents.html" class="btn btn-ghost">← חזרה לרשימה</a>
+      <button class="btn btn-danger" id="cancelBtn">בטל מסמך</button>
+    </div>
+
+    <div class="print-page" id="printPage" style="position:relative;">
+      <div class="watermark" id="watermark" style="display:none;">מבוטל</div>
+
+      <div class="print-header">
+        <div class="biz-details" id="bizDetails"></div>
+        <div class="biz-name" id="bizName"></div>
+      </div>
+
+      <div class="print-meta">
+        <div class="to">לכבוד: <b id="metaClient"></b></div>
+        <div style="text-align:left;">
+          <div>תאריך <span id="metaDate"></span></div>
+          <div style="color:#666;">מסמך ממוחשב</div>
+        </div>
+      </div>
+
+      <div class="print-title" id="docTitle"></div>
+      <div class="print-subtitle" id="docSubject"></div>
+
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px;">פריטים:</div>
+      <table class="print-table">
+        <thead>
+          <tr><th>פירוט</th><th>כמות</th><th>מחיר</th><th>סכום</th></tr>
+        </thead>
+        <tbody id="itemsRows"></tbody>
+      </table>
+
+      <div class="print-totals">
+        <div class="row"><span>סה"כ חייב במע"מ:</span><span id="pSubtotal"></span></div>
+        <div class="row"><span>מע"מ (<span id="pVatRate"></span>%):</span><span id="pVat"></span></div>
+        <div class="row total"><span>סה"כ:</span><span id="pTotal"></span></div>
+      </div>
+
+      <div class="print-payment" id="paymentBlock" style="display:none;">
+        <div style="font-weight:600;">פרטי תשלום:</div>
+        <table>
+          <thead><tr><th>תאריך</th><th>אמצעי תשלום</th><th>פרטים</th></tr></thead>
+          <tbody>
+            <tr><td id="payDate"></td><td id="payMethod"></td><td id="payDetails"></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="print-note" id="noteBlock" style="display:none;">
+        <div style="font-weight:600;">הערה מצורפת:</div>
+        <div id="noteText"></div>
+      </div>
+
+      <div class="print-footer" id="docStatusLine"></div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const doc = DB.getDocument(params.get("id"));
+if (!doc) {
+  document.body.innerHTML = "<p style='padding:40px;text-align:center'>המסמך לא נמצא. <a href='documents.html'>חזרה לרשימה</a></p>";
+  throw new Error("doc not found");
+}
+const settings = DB.getSettings();
+
+document.getElementById("bizName").textContent = settings.companyName;
+document.getElementById("bizDetails").innerHTML = `
+  ${settings.companyTagline}<br>
+  ${settings.companyDealerType} ת.ז.: ${settings.companyTaxId}<br>
+  ${settings.companyAddress}<br>
+  טל: ${settings.companyPhone}`;
+
+document.getElementById("metaClient").textContent = doc.clientName;
+document.getElementById("metaDate").textContent = formatDateHe(doc.issueDate);
+document.getElementById("docTitle").textContent = `${DOC_TYPES[doc.docType].label} מספר ${doc.docNumber}`;
+document.getElementById("docSubject").textContent = doc.workSubject || "";
+
+const rowsHtml = doc.items.map(it => `
+  <tr>
+    <td>${it.desc}</td>
+    <td>${it.qty}</td>
+    <td>${money(it.price)}</td>
+    <td>${money(calcLineTotal(it))}</td>
+  </tr>`).join("");
+document.getElementById("itemsRows").innerHTML = rowsHtml || `<tr><td colspan="4" style="text-align:center;color:#999;">אין פריטים</td></tr>`;
+
+const subtotal = calcSubtotal(doc.items);
+const tax = calcTax(subtotal, doc.includeVat, settings.vatRate);
+const total = calcTotal(subtotal, tax);
+document.getElementById("pSubtotal").textContent = money(subtotal);
+document.getElementById("pVatRate").textContent = doc.includeVat ? settings.vatRate : "0";
+document.getElementById("pVat").textContent = money(tax);
+document.getElementById("pTotal").textContent = money(total);
+
+if (doc.paymentMethod) {
+  document.getElementById("paymentBlock").style.display = "";
+  document.getElementById("payDate").textContent = formatDateHe(doc.issueDate);
+  document.getElementById("payMethod").textContent = doc.paymentMethod;
+  document.getElementById("payDetails").textContent = doc.paymentDetails || "";
+}
+if (doc.noteBody) {
+  document.getElementById("noteBlock").style.display = "";
+  document.getElementById("noteText").textContent = doc.noteBody;
+}
+if (doc.isCanceled) {
+  document.getElementById("watermark").style.display = "block";
+}
+document.getElementById("docStatusLine").textContent = `סטטוס: ${STATUS[doc.status] ? STATUS[doc.status].label : ""}`;
+
+document.getElementById("printBtn").addEventListener("click", () => window.print());
+document.getElementById("editBtn").addEventListener("click", () => location.href = "create.html?id=" + doc.id);
+document.getElementById("cancelBtn").addEventListener("click", () => {
+  if (!confirm("האם ברצונך לבטל מסמך זה?")) return;
+  doc.isCanceled = true;
+  doc.status = "canceled";
+  doc.canceledAt = new Date().toISOString();
+  DB.upsertDocument(doc);
+  location.reload();
+});
+document.getElementById("shareBtn").addEventListener("click", async () => {
+  const text = `${DOC_TYPES[doc.docType].label} מספר ${doc.docNumber} עבור ${doc.clientName} - סה"כ ${money(total)}`;
+  if (navigator.share) {
+    try { await navigator.share({ title: document.title, text }); } catch (e) {}
+  } else {
+    window.location.href = "https://wa.me/?text=" + encodeURIComponent(text);
+  }
+});
+</script>
+</body>
+</html>
