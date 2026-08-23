@@ -9,6 +9,7 @@ const DB_KEYS = {
   clients: "flowcrm_clients",
   documents: "flowcrm_documents",
   settings: "flowcrm_settings",
+  expenses: "flowcrm_expenses",
 };
 
 const DOC_TYPES = {
@@ -24,7 +25,62 @@ const STATUS = {
   canceled: { label: "מבוטל", badge: "badge-canceled" },
 };
 
-const PAYMENT_METHODS = ["צ'ק בנקאי", "ביט", "מזומן", "העברה בנקאית"];
+/* Only documents of type "receipt" (קבלה) carry payment details — an
+   invoice (חשבונית עסקה) records a debt, a receipt records money that
+   actually changed hands, a quote isn't a transaction at all. Each
+   payment method exposes different fields since the "proof" differs
+   (a check has a number+bank, a cash payment has nothing to record). */
+const PAYMENT_METHOD_DEFS = {
+  "מזומן": { fields: [] },
+  "ביט": {
+    fields: [
+      { key: "phone", label: "טלפון השולח" },
+      { key: "reference", label: "מספר אסמכתא" },
+    ],
+  },
+  "PayBox": {
+    fields: [
+      { key: "reference", label: "מספר אסמכתא / קישור" },
+    ],
+  },
+  "PayPal": {
+    fields: [
+      { key: "email", label: "אימייל / חשבון PayPal" },
+      { key: "transactionId", label: "מזהה עסקה" },
+    ],
+  },
+  "העברה בנקאית": {
+    fields: [
+      { key: "bank", label: "בנק" },
+      { key: "branch", label: "סניף" },
+      { key: "account", label: "מספר חשבון" },
+    ],
+  },
+  "צ'ק בנקאי": {
+    fields: [
+      { key: "checkNumber", label: "מספר צ'ק" },
+      { key: "bank", label: "בנק" },
+      { key: "branch", label: "סניף" },
+      { key: "account", label: "מספר חשבון" },
+    ],
+  },
+  "אחר": {
+    fields: [
+      { key: "details", label: "פרטים" },
+    ],
+  },
+};
+const PAYMENT_METHODS = Object.keys(PAYMENT_METHOD_DEFS);
+
+function formatPaymentFields(method, fields) {
+  const def = PAYMENT_METHOD_DEFS[method];
+  if (!def) return "";
+  const parts = def.fields
+    .map(f => [f.label, (fields || {})[f.key]])
+    .filter(([, v]) => v)
+    .map(([label, v]) => `${label}: ${v}`);
+  return parts.join(", ");
+}
 
 function loadJSON(key, fallback) {
   try {
@@ -53,6 +109,7 @@ const SEED_SETTINGS = {
   companyAddress: "גורדון 55, רחובות, 7628620",
   companyPhone: "0502071798",
   companyEmail: "",
+  companyLogo: null, // data URL, set from Settings
   vatRate: 0,
   nextInvoiceNumber: 90062,
   nextReceiptNumber: 20084,
@@ -74,6 +131,9 @@ function ensureSeeded() {
   }
   if (localStorage.getItem(DB_KEYS.documents) === null) {
     saveJSON(DB_KEYS.documents, []);
+  }
+  if (localStorage.getItem(DB_KEYS.expenses) === null) {
+    saveJSON(DB_KEYS.expenses, []);
   }
 }
 ensureSeeded();
@@ -110,6 +170,20 @@ const DB = {
   getDocument(id) { return DB.getDocuments().find(d => d.id === id); },
   deleteDocument(id) {
     DB.saveDocuments(DB.getDocuments().filter(d => d.id !== id));
+  },
+
+  getExpenses() { return loadJSON(DB_KEYS.expenses, []); },
+  saveExpenses(list) { saveJSON(DB_KEYS.expenses, list); },
+  upsertExpense(exp) {
+    const list = DB.getExpenses();
+    const idx = list.findIndex(e => e.id === exp.id);
+    if (idx >= 0) list[idx] = exp; else list.unshift(exp);
+    DB.saveExpenses(list);
+    return exp;
+  },
+  getExpense(id) { return DB.getExpenses().find(e => e.id === id); },
+  deleteExpense(id) {
+    DB.saveExpenses(DB.getExpenses().filter(e => e.id !== id));
   },
 
   nextDocNumber(docType) {
@@ -165,11 +239,35 @@ function toast(msg) {
   el._t = setTimeout(() => el.classList.remove("show"), 2200);
 }
 
+const FLOWCRM_ICON_SVG = `
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="50" cy="50" r="50" fill="#1e3a5f"/>
+  <path d="M32 22 h24 l12 12 v42 a4 4 0 0 1-4 4 H32 a4 4 0 0 1-4-4 V26 a4 4 0 0 1 4-4 z" fill="#ffffff"/>
+  <path d="M56 22 v10 a2 2 0 0 0 2 2 h10 z" fill="#c7d4e3"/>
+  <path d="M33 55 l11 11 22-24" fill="none" stroke="#22c55e" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`.trim();
+
+const DIGITAL_STAMP_SVG = `
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <path id="fcStampTopArc" d="M 12 52 A 38 38 0 0 1 88 52" fill="none"/>
+  </defs>
+  <circle cx="50" cy="50" r="46" fill="none" stroke="#1e3a5f" stroke-width="2"/>
+  <circle cx="50" cy="50" r="40" fill="none" stroke="#1e3a5f" stroke-width="1" stroke-dasharray="2 2"/>
+  <text font-size="9" font-weight="700" fill="#1e3a5f" font-family="DejaVu Sans Condensed, Arial, sans-serif">
+    <textPath href="#fcStampTopArc" startOffset="50%" text-anchor="middle">מסמך מאומת</textPath>
+  </text>
+  <path d="M32 51 L44 63 L70 35" fill="none" stroke="#22c55e" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="50" y="76" font-size="8" fill="#1e3a5f" text-anchor="middle" font-family="DejaVu Sans Condensed, Arial, sans-serif">חתום דיגיטלית</text>
+</svg>`.trim();
+
 function renderSidebar(active) {
   const items = [
     ["index.html", "לוח בקרה"],
     ["documents.html", "מסמכים"],
     ["clients.html", "לקוחות"],
+    ["expenses.html", "הוצאות"],
+    ["reports.html", "דוחות"],
     ["settings.html", "הגדרות"],
   ];
   const nav = items.map(([href, label]) =>
@@ -178,8 +276,13 @@ function renderSidebar(active) {
   return `
   <button class="hamburger" id="hamburgerBtn">☰</button>
   <aside class="sidebar" id="sidebar">
-    <div class="brand">FlowCRM</div>
-    <div class="brand-sub">מערכת ניהול מסמכים עצמאית</div>
+    <div class="brand-row">
+      <span class="brand-icon">${FLOWCRM_ICON_SVG}</span>
+      <div>
+        <div class="brand">FlowCRM</div>
+        <div class="brand-sub">מערכת ניהול מסמכים עצמאית</div>
+      </div>
+    </div>
     <nav>${nav}</nav>
     <a href="create.html" class="new-doc-btn">+ מסמך חדש</a>
     <div class="footer">הנתונים נשמרים במכשיר זה בלבד</div>
@@ -194,6 +297,42 @@ function mountShell(active) {
     btn.addEventListener("click", () => sb.classList.toggle("open"));
     sb.querySelectorAll("a").forEach(a => a.addEventListener("click", () => sb.classList.remove("open")));
   }
+}
+
+/* Downscale an uploaded image before storing it as a data URL, so a phone
+   photo (often several MB) doesn't blow past localStorage's ~5-10MB quota
+   after a few receipts. PDFs and anything non-image are stored as-is. */
+function fileToStoredDataURL(file, maxDim = 1400, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/") || file.type === "image/svg+xml") {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ dataUrl: reader.result, mime: file.type, name: file.name });
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+      return;
+    }
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => {
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve({ dataUrl: canvas.toDataURL("image/jpeg", quality), mime: "image/jpeg", name: file.name });
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 function docBadge(docType) {

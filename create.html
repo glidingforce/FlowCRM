@@ -44,6 +44,16 @@
               <input type="text" id="workSubject" placeholder="לדוגמה: החלפת לוח חשמל, קבלת תשלום">
             </div>
           </div>
+          <div class="field-row">
+            <div class="field">
+              <label>סטטוס מסמך</label>
+              <select id="status">
+                <option value="open">פתוח</option>
+                <option value="closed">סגור</option>
+                <option value="draft">טיוטה</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -101,35 +111,11 @@
         </div>
       </div>
 
-      <div class="card">
-        <div class="section-bar">פרטי תשלום (אופציונלי)</div>
+      <div class="card" id="paymentsCard" style="display:none;">
+        <div class="section-bar">פרטי תשלום</div>
         <div class="section-body">
-          <div class="field-row">
-            <div class="field">
-              <label>סטטוס מסמך</label>
-              <select id="status">
-                <option value="open">פתוח</option>
-                <option value="closed">סגור</option>
-                <option value="draft">טיוטה</option>
-              </select>
-            </div>
-            <div class="field">
-              <label>שיטת תשלום</label>
-              <select id="paymentMethod">
-                <option value="">— ללא —</option>
-                <option value="צ'ק בנקאי">צ'ק בנקאי</option>
-                <option value="ביט">ביט</option>
-                <option value="מזומן">מזומן</option>
-                <option value="העברה בנקאית">העברה בנקאית</option>
-              </select>
-            </div>
-          </div>
-          <div class="field-row">
-            <div class="field" style="flex-basis:100%">
-              <label>פרטי תשלום</label>
-              <input type="text" id="paymentDetails" placeholder="מס' צ'ק / בנק וסניף / מזהה העברה וכו'">
-            </div>
-          </div>
+          <div id="paymentsList"></div>
+          <button type="button" class="btn" id="addPaymentBtn">+ הוסף תשלום</button>
         </div>
       </div>
 
@@ -183,7 +169,10 @@ function refillDocNumber() {
   if (existingDoc) return;
   docNumber.value = DB.nextDocNumber(docType.value);
 }
-docType.addEventListener("change", refillDocNumber);
+function updatePaymentsVisibility() {
+  document.getElementById("paymentsCard").style.display = docType.value === "receipt" ? "" : "none";
+}
+docType.addEventListener("change", () => { refillDocNumber(); updatePaymentsVisibility(); });
 
 const settings = DB.getSettings();
 document.getElementById("vatRateLabel").textContent = settings.vatRate;
@@ -237,6 +226,67 @@ function recalc() {
 }
 document.getElementById("includeVat").addEventListener("change", recalc);
 
+/* ---- payments (receipts only) ---- */
+let payments = [];
+
+function newPayment() {
+  return { id: uid("pay"), date: issueDate.value || new Date().toISOString().slice(0, 10), method: PAYMENT_METHODS[0], amount: 0, fields: {} };
+}
+
+function renderPayments() {
+  const list = document.getElementById("paymentsList");
+  list.innerHTML = "";
+  if (!payments.length) {
+    list.innerHTML = `<p style="color:var(--text-muted);font-size:13px;margin:0 0 10px;">אין עדיין תשלומים רשומים למסמך זה.</p>`;
+  }
+  payments.forEach((p, i) => {
+    const def = PAYMENT_METHOD_DEFS[p.method] || { fields: [] };
+    const fieldsHtml = def.fields.map(f => `
+      <div class="field">
+        <label>${f.label}</label>
+        <input type="text" value="${(p.fields[f.key] || "").toString().replace(/"/g, "&quot;")}" data-pi="${i}" data-pf="${f.key}">
+      </div>`).join("");
+    const methodOptions = PAYMENT_METHODS.map(m => `<option value="${m}" ${p.method === m ? "selected" : ""}>${m}</option>`).join("");
+    const row = document.createElement("div");
+    row.className = "payment-row";
+    row.innerHTML = `
+      <div class="payment-row-head">
+        <b>תשלום ${i + 1}</b>
+        <button type="button" class="icon-btn danger" data-pdel="${i}">🗑</button>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>תאריך</label><input type="date" value="${p.date}" data-pi="${i}" data-pf="__date"></div>
+        <div class="field"><label>אמצעי תשלום</label><select data-pi="${i}" data-pf="__method">${methodOptions}</select></div>
+        <div class="field"><label>סכום</label><input type="number" min="0" step="0.01" value="${p.amount}" data-pi="${i}" data-pf="__amount"></div>
+      </div>
+      ${fieldsHtml ? `<div class="field-row">${fieldsHtml}</div>` : ""}`;
+    list.appendChild(row);
+  });
+
+  list.querySelectorAll("[data-pf='__date']").forEach(inp => inp.addEventListener("input", e => { payments[+e.target.dataset.pi].date = e.target.value; }));
+  list.querySelectorAll("[data-pf='__amount']").forEach(inp => inp.addEventListener("input", e => { payments[+e.target.dataset.pi].amount = parseFloat(e.target.value) || 0; }));
+  list.querySelectorAll("select[data-pf='__method']").forEach(sel => sel.addEventListener("change", e => {
+    payments[+e.target.dataset.pi].method = e.target.value;
+    payments[+e.target.dataset.pi].fields = {};
+    renderPayments();
+  }));
+  list.querySelectorAll("input[data-pf]").forEach(inp => {
+    if (inp.dataset.pf === "__date" || inp.dataset.pf === "__amount") return;
+    inp.addEventListener("input", e => {
+      payments[+e.target.dataset.pi].fields[e.target.dataset.pf] = e.target.value;
+    });
+  });
+  list.querySelectorAll("[data-pdel]").forEach(btn => btn.addEventListener("click", () => {
+    payments.splice(+btn.dataset.pdel, 1);
+    renderPayments();
+  }));
+}
+
+document.getElementById("addPaymentBtn").addEventListener("click", () => {
+  payments.push(newPayment());
+  renderPayments();
+});
+
 /* ---- populate on edit, or defaults on create ---- */
 if (existingDoc) {
   docType.value = existingDoc.docType;
@@ -249,8 +299,7 @@ if (existingDoc) {
   items = existingDoc.items && existingDoc.items.length ? existingDoc.items : items;
   document.getElementById("includeVat").checked = !!existingDoc.includeVat;
   document.getElementById("status").value = existingDoc.status || "open";
-  document.getElementById("paymentMethod").value = existingDoc.paymentMethod || "";
-  document.getElementById("paymentDetails").value = existingDoc.paymentDetails || "";
+  payments = existingDoc.payments || [];
   document.getElementById("noteBody").value = existingDoc.noteBody || "";
 } else {
   issueDate.value = new Date().toISOString().slice(0, 10);
@@ -258,6 +307,8 @@ if (existingDoc) {
 }
 renderItems();
 recalc();
+renderPayments();
+updatePaymentsVisibility();
 
 function collectDoc(status) {
   const isNew = !existingDoc;
@@ -273,8 +324,7 @@ function collectDoc(status) {
     items: items.filter(it => it.desc || it.qty || it.price),
     includeVat: document.getElementById("includeVat").checked,
     status: status || document.getElementById("status").value,
-    paymentMethod: document.getElementById("paymentMethod").value,
-    paymentDetails: document.getElementById("paymentDetails").value,
+    payments: docType.value === "receipt" ? payments : [],
     noteBody: document.getElementById("noteBody").value,
     isCanceled: existingDoc ? existingDoc.isCanceled : false,
     createdAt: existingDoc ? existingDoc.createdAt : new Date().toISOString(),

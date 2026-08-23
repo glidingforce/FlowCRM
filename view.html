@@ -26,14 +26,15 @@
 
       <div class="print-header">
         <div class="biz-details" id="bizDetails"></div>
-        <div class="biz-name" id="bizName"></div>
+        <div id="bizLogoWrap"></div>
       </div>
 
       <div class="print-meta">
         <div class="to">לכבוד: <b id="metaClient"></b></div>
         <div style="text-align:left;">
           <div>תאריך <span id="metaDate"></span></div>
-          <div style="color:#666;">מסמך ממוחשב</div>
+          <div style="color:#666;">מסמך ממוחשב, חתום דיגיטלית</div>
+          <div class="print-stamp" id="printStamp"></div>
         </div>
       </div>
 
@@ -57,10 +58,8 @@
       <div class="print-payment" id="paymentBlock" style="display:none;">
         <div style="font-weight:600;">פרטי תשלום:</div>
         <table>
-          <thead><tr><th>תאריך</th><th>אמצעי תשלום</th><th>פרטים</th></tr></thead>
-          <tbody>
-            <tr><td id="payDate"></td><td id="payMethod"></td><td id="payDetails"></td></tr>
-          </tbody>
+          <thead><tr><th>תאריך</th><th>אמצעי תשלום</th><th>פרטים</th><th>סכום</th></tr></thead>
+          <tbody id="paymentRows"></tbody>
         </table>
       </div>
 
@@ -69,7 +68,13 @@
         <div id="noteText"></div>
       </div>
 
-      <div class="print-footer" id="docStatusLine"></div>
+      <div class="print-footer">
+        <div id="docStatusLine"></div>
+        <div class="print-footer-brand">
+          <span class="fc-icon" id="footerIcon"></span>
+          <span>הופק על ידי FlowCRM</span>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -84,12 +89,17 @@ if (!doc) {
 }
 const settings = DB.getSettings();
 
-document.getElementById("bizName").textContent = settings.companyName;
+document.getElementById("bizLogoWrap").innerHTML = settings.companyLogo
+  ? `<img class="biz-logo" src="${settings.companyLogo}" alt="${settings.companyName}">`
+  : `<div class="biz-name">${settings.companyName}</div>`;
 document.getElementById("bizDetails").innerHTML = `
   ${settings.companyTagline}<br>
   ${settings.companyDealerType} ת.ז.: ${settings.companyTaxId}<br>
   ${settings.companyAddress}<br>
   טל: ${settings.companyPhone}`;
+
+document.getElementById("printStamp").innerHTML = DIGITAL_STAMP_SVG;
+document.getElementById("footerIcon").innerHTML = FLOWCRM_ICON_SVG;
 
 document.getElementById("metaClient").textContent = doc.clientName;
 document.getElementById("metaDate").textContent = formatDateHe(doc.issueDate);
@@ -113,11 +123,15 @@ document.getElementById("pVatRate").textContent = doc.includeVat ? settings.vatR
 document.getElementById("pVat").textContent = money(tax);
 document.getElementById("pTotal").textContent = money(total);
 
-if (doc.paymentMethod) {
+if (doc.docType === "receipt" && doc.payments && doc.payments.length) {
   document.getElementById("paymentBlock").style.display = "";
-  document.getElementById("payDate").textContent = formatDateHe(doc.issueDate);
-  document.getElementById("payMethod").textContent = doc.paymentMethod;
-  document.getElementById("payDetails").textContent = doc.paymentDetails || "";
+  document.getElementById("paymentRows").innerHTML = doc.payments.map(p => `
+    <tr>
+      <td>${formatDateHe(p.date)}</td>
+      <td>${p.method}</td>
+      <td>${formatPaymentFields(p.method, p.fields) || "-"}</td>
+      <td>${money(p.amount || 0)}</td>
+    </tr>`).join("");
 }
 if (doc.noteBody) {
   document.getElementById("noteBlock").style.display = "";

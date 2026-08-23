@@ -19,6 +19,15 @@
     <div class="card">
       <div class="section-bar">פרטי החברה</div>
       <div class="section-body">
+        <div class="logo-upload">
+          <div class="logo-preview" id="logoPreview"><span style="color:var(--text-muted);font-size:12px;">אין לוגו</span></div>
+          <div class="btn-row" style="margin:0;">
+            <button type="button" class="btn" id="uploadLogoBtn">⬆ העלאת לוגו</button>
+            <button type="button" class="btn btn-danger" id="removeLogoBtn" style="display:none;">הסרת לוגו</button>
+            <input type="file" id="logoFile" accept="image/*" style="display:none;">
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;">הלוגו יופיע בראש כל מסמך מודפס במקום שם החברה.</p>
         <div class="field-row">
           <div class="field"><label>שם החברה</label><input id="companyName"></div>
           <div class="field"><label>תיאור / עיסוק</label><input id="companyTagline"></div>
@@ -77,6 +86,43 @@
 <script>
 mountShell("settings.html");
 const s = DB.getSettings();
+
+function renderLogoPreview() {
+  const cur = DB.getSettings();
+  const preview = document.getElementById("logoPreview");
+  const removeBtn = document.getElementById("removeLogoBtn");
+  if (cur.companyLogo) {
+    preview.innerHTML = `<img src="${cur.companyLogo}" alt="לוגו">`;
+    removeBtn.style.display = "";
+  } else {
+    preview.innerHTML = `<span style="color:var(--text-muted);font-size:12px;">אין לוגו</span>`;
+    removeBtn.style.display = "none";
+  }
+}
+renderLogoPreview();
+
+document.getElementById("uploadLogoBtn").addEventListener("click", () => document.getElementById("logoFile").click());
+document.getElementById("logoFile").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const { dataUrl } = await fileToStoredDataURL(file, 500, 0.9);
+    const cur = DB.getSettings();
+    cur.companyLogo = dataUrl;
+    DB.saveSettings(cur);
+    renderLogoPreview();
+    toast("הלוגו הועלה");
+  } catch (err) {
+    alert("שגיאה בהעלאת הלוגו");
+  }
+});
+document.getElementById("removeLogoBtn").addEventListener("click", () => {
+  const cur = DB.getSettings();
+  cur.companyLogo = null;
+  DB.saveSettings(cur);
+  renderLogoPreview();
+});
+
 document.getElementById("companyName").value = s.companyName;
 document.getElementById("companyTagline").value = s.companyTagline;
 document.getElementById("companyDealerType").value = s.companyDealerType;
@@ -91,6 +137,7 @@ document.getElementById("nextQuoteNumber").value = s.nextQuoteNumber;
 
 document.getElementById("saveBtn").addEventListener("click", () => {
   const updated = {
+    ...DB.getSettings(),
     companyName: document.getElementById("companyName").value,
     companyTagline: document.getElementById("companyTagline").value,
     companyDealerType: document.getElementById("companyDealerType").value,
