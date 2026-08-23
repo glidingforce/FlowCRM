@@ -247,20 +247,6 @@ const FLOWCRM_ICON_SVG = `
   <path d="M33 55 l11 11 22-24" fill="none" stroke="#22c55e" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`.trim();
 
-const DIGITAL_STAMP_SVG = `
-<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <path id="fcStampTopArc" d="M 12 52 A 38 38 0 0 1 88 52" fill="none"/>
-  </defs>
-  <circle cx="50" cy="50" r="46" fill="none" stroke="#1e3a5f" stroke-width="2"/>
-  <circle cx="50" cy="50" r="40" fill="none" stroke="#1e3a5f" stroke-width="1" stroke-dasharray="2 2"/>
-  <text font-size="9" font-weight="700" fill="#1e3a5f" font-family="DejaVu Sans Condensed, Arial, sans-serif">
-    <textPath href="#fcStampTopArc" startOffset="50%" text-anchor="middle">מסמך מאומת</textPath>
-  </text>
-  <path d="M32 51 L44 63 L70 35" fill="none" stroke="#22c55e" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="50" y="76" font-size="8" fill="#1e3a5f" text-anchor="middle" font-family="DejaVu Sans Condensed, Arial, sans-serif">חתום דיגיטלית</text>
-</svg>`.trim();
-
 function renderSidebar(active) {
   const items = [
     ["index.html", "לוח בקרה"],
@@ -290,7 +276,16 @@ function renderSidebar(active) {
 }
 
 function mountShell(active) {
-  document.body.insertAdjacentHTML("afterbegin", renderSidebar(active));
+  // The sidebar must be the FIRST CHILD of .app-shell (a flex row) so it sits
+  // beside .main. Inserting it before .app-shell (as a body-level sibling)
+  // breaks the flex pairing: the sidebar collapses to its own content height
+  // and .main renders stacked below it instead of alongside it.
+  const shell = document.querySelector(".app-shell");
+  if (shell) {
+    shell.insertAdjacentHTML("afterbegin", renderSidebar(active));
+  } else {
+    document.body.insertAdjacentHTML("afterbegin", renderSidebar(active));
+  }
   const btn = document.getElementById("hamburgerBtn");
   const sb = document.getElementById("sidebar");
   if (btn && sb) {
@@ -324,7 +319,14 @@ function fileToStoredDataURL(file, maxDim = 1400, quality = 0.82) {
         const canvas = document.createElement("canvas");
         canvas.width = width;
         canvas.height = height;
-        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        const ctx = canvas.getContext("2d");
+        // JPEG has no alpha channel — an un-drawn (transparent) pixel gets
+        // filled with black by canvas.toDataURL("image/jpeg") by default.
+        // A logo uploaded as a transparent PNG would otherwise come out with
+        // a black box behind it instead of the white it looks like on screen.
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
         resolve({ dataUrl: canvas.toDataURL("image/jpeg", quality), mime: "image/jpeg", name: file.name });
       };
       img.onerror = reject;

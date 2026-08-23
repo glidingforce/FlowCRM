@@ -86,8 +86,8 @@
 
       <div class="print-footer">
         <div class="print-footer-brand">
-          <span class="fc-icon" id="footerIcon"></span>
-          <span>הופק על ידי FlowCRM</span>
+          <div class="footer-caption">הופק על ידי FlowCRM</div>
+          <img class="footer-logo" src="flowcrm-footer-logo.png" alt="FlowCRM">
         </div>
       </div>
     </div>
@@ -99,14 +99,12 @@
 mountShell("reports.html");
 const settings = DB.getSettings();
 
-document.getElementById("bizLogoWrap").innerHTML = settings.companyLogo
-  ? `<img class="biz-logo" src="${settings.companyLogo}" alt="${settings.companyName}">`
-  : `<div class="biz-name">${settings.companyName}</div>`;
+document.getElementById("bizLogoWrap").innerHTML =
+  `<img class="biz-logo" src="${settings.companyLogo || "company-logo-default.png"}" alt="${settings.companyName}">`;
 document.getElementById("bizDetails").innerHTML = `
   ${settings.companyTagline}<br>
   ${settings.companyDealerType} ת.ז.: ${settings.companyTaxId}<br>
   ${settings.companyAddress}`;
-document.getElementById("footerIcon").innerHTML = FLOWCRM_ICON_SVG;
 
 function docTotal(d) {
   const subtotal = calcSubtotal(d.items || []);

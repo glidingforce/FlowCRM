@@ -91,13 +91,10 @@ function renderLogoPreview() {
   const cur = DB.getSettings();
   const preview = document.getElementById("logoPreview");
   const removeBtn = document.getElementById("removeLogoBtn");
-  if (cur.companyLogo) {
-    preview.innerHTML = `<img src="${cur.companyLogo}" alt="לוגו">`;
-    removeBtn.style.display = "";
-  } else {
-    preview.innerHTML = `<span style="color:var(--text-muted);font-size:12px;">אין לוגו</span>`;
-    removeBtn.style.display = "none";
-  }
+  // Falls back to the default אחזקה פלוס logo baked into the app (not
+  // stored in localStorage) until a custom logo is uploaded here.
+  preview.innerHTML = `<img src="${cur.companyLogo || "company-logo-default.png"}" alt="לוגו">`;
+  removeBtn.style.display = cur.companyLogo ? "" : "none";
 }
 renderLogoPreview();
 

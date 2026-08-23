@@ -34,7 +34,7 @@
         <div style="text-align:left;">
           <div>תאריך <span id="metaDate"></span></div>
           <div style="color:#666;">מסמך ממוחשב, חתום דיגיטלית</div>
-          <div class="print-stamp" id="printStamp"></div>
+          <img class="print-stamp" src="stamp.png" alt="מסמך מאומת - חתום דיגיטלית">
         </div>
       </div>
 
@@ -71,8 +71,8 @@
       <div class="print-footer">
         <div id="docStatusLine"></div>
         <div class="print-footer-brand">
-          <span class="fc-icon" id="footerIcon"></span>
-          <span>הופק על ידי FlowCRM</span>
+          <div class="footer-caption">הופק על ידי FlowCRM</div>
+          <img class="footer-logo" src="flowcrm-footer-logo.png" alt="FlowCRM">
         </div>
       </div>
     </div>
@@ -89,22 +89,24 @@ if (!doc) {
 }
 const settings = DB.getSettings();
 
-document.getElementById("bizLogoWrap").innerHTML = settings.companyLogo
-  ? `<img class="biz-logo" src="${settings.companyLogo}" alt="${settings.companyName}">`
-  : `<div class="biz-name">${settings.companyName}</div>`;
+document.getElementById("bizLogoWrap").innerHTML =
+  `<img class="biz-logo" src="${settings.companyLogo || "company-logo-default.png"}" alt="${settings.companyName}">`;
 document.getElementById("bizDetails").innerHTML = `
   ${settings.companyTagline}<br>
   ${settings.companyDealerType} ת.ז.: ${settings.companyTaxId}<br>
   ${settings.companyAddress}<br>
   טל: ${settings.companyPhone}`;
 
-document.getElementById("printStamp").innerHTML = DIGITAL_STAMP_SVG;
-document.getElementById("footerIcon").innerHTML = FLOWCRM_ICON_SVG;
-
 document.getElementById("metaClient").textContent = doc.clientName;
 document.getElementById("metaDate").textContent = formatDateHe(doc.issueDate);
 document.getElementById("docTitle").textContent = `${DOC_TYPES[doc.docType].label} מספר ${doc.docNumber}`;
 document.getElementById("docSubject").textContent = doc.workSubject || "";
+// Chrome's print dialog prints document.title (+ today's date) as its own
+// header, and the page URL as its own footer, ON TOP of our layout — that's
+// the extra title/date/link the browser adds, not something this page
+// renders. Give it a clean title either way; the "Headers and footers"
+// toggle in the print dialog's "More settings" turns that browser add-on off.
+document.title = `${DOC_TYPES[doc.docType].label} ${doc.docNumber} - ${settings.companyName}`;
 
 const rowsHtml = doc.items.map(it => `
   <tr>
