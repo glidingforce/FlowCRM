@@ -14,11 +14,15 @@
 <div class="app-shell">
   <div class="main" style="max-width:900px;">
     <div class="btn-row no-print" style="margin-bottom:16px;">
-      <button class="btn btn-primary" id="printBtn">🖨 הדפס / שמור PDF</button>
+      <button class="btn btn-primary" id="printBtn">🖨 הדפסה</button>
+      <button class="btn btn-primary" id="savePdfBtn">⬇ שמור כ-PDF</button>
+      <div class="dropdown-wrap" id="closeWithWrap" style="display:none;">
+        <button type="button" class="btn btn-success" id="closeWithBtn">✓ סגור עם...</button>
+        <div class="dropdown-menu" id="closeWithMenu"></div>
+      </div>
       <button class="btn" id="editBtn">✏ עריכה</button>
       <button class="btn" id="shareBtn">📤 שתף</button>
-      <a href="documents.html" class="btn btn-ghost">← חזרה לרשימה</a>
-      <button class="btn btn-danger" id="cancelBtn">בטל מסמך</button>
+      <a href="documents.html" class="btn btn-ghost">← חזרה למסמכים</a>
     </div>
 
     <div class="print-page" id="printPage" style="position:relative;">
@@ -69,7 +73,6 @@
       </div>
 
       <div class="print-footer">
-        <div id="docStatusLine"></div>
         <div class="print-footer-brand">
           <div class="footer-caption">הופק על ידי FlowCRM</div>
           <img class="footer-logo" src="flowcrm-footer-logo.png" alt="FlowCRM">
@@ -142,18 +145,56 @@ if (doc.noteBody) {
 if (doc.isCanceled) {
   document.getElementById("watermark").style.display = "block";
 }
-document.getElementById("docStatusLine").textContent = `סטטוס: ${STATUS[doc.status] ? STATUS[doc.status].label : ""}`;
 
 document.getElementById("printBtn").addEventListener("click", () => window.print());
+document.getElementById("savePdfBtn").addEventListener("click", () => window.print());
 document.getElementById("editBtn").addEventListener("click", () => location.href = "create.html?id=" + doc.id);
-document.getElementById("cancelBtn").addEventListener("click", () => {
-  if (!confirm("האם ברצונך לבטל מסמך זה?")) return;
-  doc.isCanceled = true;
-  doc.status = "canceled";
-  doc.canceledAt = new Date().toISOString();
-  DB.upsertDocument(doc);
-  location.reload();
-});
+
+/* ---- "סגור עם..." — convert a quote into an invoice/receipt, or an
+   invoice into a receipt. Cancelling/changing status is admin-only now
+   (documents.html), so this is the only status-affecting action left here. */
+const CLOSE_WITH_OPTIONS = {
+  quote: ["invoice", "receipt"],
+  invoice: ["receipt"],
+};
+const closeOptions = !doc.isCanceled && doc.status !== "closed" ? (CLOSE_WITH_OPTIONS[doc.docType] || []) : [];
+if (closeOptions.length) {
+  const wrap = document.getElementById("closeWithWrap");
+  const menu = document.getElementById("closeWithMenu");
+  wrap.style.display = "";
+  menu.innerHTML = closeOptions.map(t => `<button type="button" data-t="${t}">${DOC_TYPES[t].label}</button>`).join("");
+  document.getElementById("closeWithBtn").addEventListener("click", () => menu.classList.toggle("open"));
+  document.addEventListener("click", (e) => { if (!wrap.contains(e.target)) menu.classList.remove("open"); });
+  menu.querySelectorAll("[data-t]").forEach(btn => btn.addEventListener("click", () => {
+    const targetType = btn.dataset.t;
+    if (!confirm(`ייווצר מסמך "${DOC_TYPES[targetType].label}" חדש עם אותם פרטי לקוח ופריטים, והמסמך הנוכחי (${DOC_TYPES[doc.docType].label}) יסומן כסגור. להמשיך?`)) return;
+    const newDoc = {
+      id: uid("doc"),
+      docType: targetType,
+      docNumber: DB.nextDocNumber(targetType),
+      issueDate: new Date().toISOString().slice(0, 10),
+      workSubject: doc.workSubject || "",
+      clientId: doc.clientId || null,
+      clientName: doc.clientName || "",
+      clientAddress: doc.clientAddress || "",
+      items: doc.items || [],
+      includeVat: !!doc.includeVat,
+      status: "open",
+      payments: [],
+      noteBody: doc.noteBody || "",
+      isCanceled: false,
+      convertedFrom: { id: doc.id, docType: doc.docType, docNumber: doc.docNumber },
+      createdAt: new Date().toISOString(),
+    };
+    DB.upsertDocument(newDoc);
+    DB.bumpDocNumber(targetType);
+    doc.status = "closed";
+    doc.convertedTo = { id: newDoc.id, docType: newDoc.docType, docNumber: newDoc.docNumber };
+    DB.upsertDocument(doc);
+    location.href = "create.html?id=" + newDoc.id;
+  }));
+}
+
 document.getElementById("shareBtn").addEventListener("click", async () => {
   const text = `${DOC_TYPES[doc.docType].label} מספר ${doc.docNumber} עבור ${doc.clientName} - סה"כ ${money(total)}`;
   if (navigator.share) {

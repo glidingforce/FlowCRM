@@ -40,7 +40,8 @@ const PAYMENT_METHOD_DEFS = {
   },
   "PayBox": {
     fields: [
-      { key: "reference", label: "מספר אסמכתא / קישור" },
+      { key: "phone", label: "טלפון השולח" },
+      { key: "reference", label: "מספר אסמכתא" },
     ],
   },
   "PayPal": {

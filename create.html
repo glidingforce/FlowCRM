@@ -188,15 +188,20 @@ function renderItems() {
       <td><input type="text" value="${it.desc.replace(/"/g,'&quot;')}" data-i="${i}" data-f="desc"></td>
       <td><input type="number" min="0" step="0.01" value="${it.qty}" data-i="${i}" data-f="qty"></td>
       <td><input type="number" min="0" step="0.01" value="${it.price}" data-i="${i}" data-f="price"></td>
-      <td>${money(calcLineTotal(it))}</td>
+      <td class="line-total">${money(calcLineTotal(it))}</td>
       <td><button type="button" class="icon-btn danger" data-del="${i}">🗑</button></td>`;
     body.appendChild(tr);
   });
+  // IMPORTANT: on "input" we only patch the data model + this row's own total
+  // cell — never call renderItems() here. Rebuilding the whole <tbody> on
+  // every keystroke replaces the focused <input> with a new DOM node, which
+  // is exactly what was throwing focus out after one character typed.
+  // renderItems() is only called on structural changes (add/delete a line).
   body.querySelectorAll("input").forEach(inp => {
     inp.addEventListener("input", () => {
       const i = +inp.dataset.i, f = inp.dataset.f;
       items[i][f] = f === "desc" ? inp.value : parseFloat(inp.value) || 0;
-      renderItems();
+      inp.closest("tr").querySelector(".line-total").textContent = money(calcLineTotal(items[i]));
       recalc();
     });
   });
@@ -310,6 +315,17 @@ recalc();
 renderPayments();
 updatePaymentsVisibility();
 
+// Duplicate numbers are only blocked within the same document type — the
+// invoice/receipt/quote counters in Settings are independent sequences, so
+// e.g. invoice 90062 and quote 90062 coexisting is fine; two invoices both
+// numbered 90062 is not.
+function isDuplicateDocNumber() {
+  const num = String(docNumber.value).trim();
+  const type = docType.value;
+  const selfId = existingDoc ? existingDoc.id : null;
+  return DB.getDocuments().some(d => d.id !== selfId && d.docType === type && String(d.docNumber).trim() === num);
+}
+
 function collectDoc(status) {
   const isNew = !existingDoc;
   const doc = {
@@ -336,12 +352,20 @@ function collectDoc(status) {
 
 document.getElementById("docForm").addEventListener("submit", (e) => {
   e.preventDefault();
+  if (isDuplicateDocNumber()) {
+    alert(`כבר קיים מסמך מסוג ${DOC_TYPES[docType.value].label} עם מספר ${docNumber.value}. שנה את מספר המסמך ונסה שוב.`);
+    return;
+  }
   const doc = collectDoc();
   toast("המסמך נשמר");
   location.href = "view.html?id=" + doc.id;
 });
 
 document.getElementById("previewBtn").addEventListener("click", () => {
+  if (isDuplicateDocNumber()) {
+    alert(`כבר קיים מסמך מסוג ${DOC_TYPES[docType.value].label} עם מספר ${docNumber.value}. שנה את מספר המסמך ונסה שוב.`);
+    return;
+  }
   const doc = collectDoc(existingDoc ? existingDoc.status : "draft");
   location.href = "view.html?id=" + doc.id;
 });
