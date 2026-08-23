@@ -67,10 +67,43 @@
     </div>
 
     <div class="card">
-      <div class="section-bar">גיבוי ושחזור</div>
+      <div class="section-bar">סנכרון לגוגל דרייב</div>
       <div class="section-body">
         <p style="font-size:13px;color:var(--text-muted);margin-top:0;">
-          כל הנתונים נשמרים בדפדפן הזה בלבד. הורד גיבוי באופן קבוע ושמור אותו בגוגל דרייב כדי שהמידע לעולם לא ייעלם.
+          מאפשר לראות ולעדכן את הנתונים גם מהטלפון וגם מהמחשב, דרך קובץ גיבוי אחד שנשמר בגוגל דרייב שלך (רק שלך — לא של FlowCRM). זו לא חובה: האפליקציה ממשיכה לעבוד מצוין גם בלי זה, עם הורדת גיבוי ידנית בלבד.
+        </p>
+        <details id="driveSetupDetails" style="margin-bottom:14px;">
+          <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--navy);">איך מגדירים את זה? (חד־פעמי, כמה דקות)</summary>
+          <ol style="font-size:13px;color:var(--text-muted);line-height:1.8;padding-inline-start:20px;margin:10px 0 0;">
+            <li>כנסו ל־<a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a> עם חשבון הגוגל שלכם ולחצו "צור פרויקט" (New Project) — כל שם, למשל "FlowCRM".</li>
+            <li>בתפריט: APIs &amp; Services &gt; OAuth consent screen. בחרו External, מלאו שם אפליקציה ואימייל, שמרו (אין צורך לשלוח לאישור גוגל — מספיק שהחשבון שלכם רשום כ"בודק/Test user" באותו מסך).</li>
+            <li>APIs &amp; Services &gt; Library — חפשו "Google Drive API" ולחצו Enable.</li>
+            <li>APIs &amp; Services &gt; Credentials &gt; Create Credentials &gt; OAuth client ID. סוג: Web application.</li>
+            <li>תחת "Authorized JavaScript origins" הוסיפו את הכתובת המדויקת שבה האתר רץ (למשל <code>https://glidingforce.github.io</code>) — בלי סלאש בסוף.</li>
+            <li>לחצו Create — תקבלו "Client ID" שנראה כמו <code>123...apps.googleusercontent.com</code>. הוא לא סודי; הדביקו אותו כאן למטה.</li>
+          </ol>
+        </details>
+        <div class="field-row">
+          <div class="field" style="flex-basis:100%;">
+            <label>Google Client ID</label>
+            <input id="googleClientId" placeholder="xxxxxxxx.apps.googleusercontent.com">
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="saveClientIdBtn">שמירת Client ID</button>
+          <button class="btn btn-primary" id="driveConnectBtn">🔗 התחברות עם Google</button>
+          <button class="btn btn-danger" id="driveDisconnectBtn" style="display:none;">ניתוק</button>
+          <button class="btn" id="driveSyncNowBtn" style="display:none;">🔄 סנכרן עכשיו</button>
+        </div>
+        <p id="driveStatus" style="font-size:13px;color:var(--text-muted);margin:10px 0 0;"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-bar">גיבוי ושחזור ידני</div>
+      <div class="section-body">
+        <p style="font-size:13px;color:var(--text-muted);margin-top:0;">
+          כל הנתונים נשמרים בדפדפן הזה בלבד. גם אם מפעילים סנכרון לדרייב למעלה, מומלץ להוריד גיבוי מדי פעם כרשת ביטחון נוספת.
         </p>
         <div class="btn-row">
           <button class="btn btn-primary" id="exportBtn">⬇ הורדת גיבוי (JSON)</button>
@@ -83,6 +116,7 @@
 </div>
 
 <script src="app.js"></script>
+<script src="drive-sync.js"></script>
 <script>
 mountShell("settings.html");
 const s = DB.getSettings();
@@ -157,6 +191,7 @@ document.getElementById("exportBtn").addEventListener("click", () => {
     settings: DB.getSettings(),
     clients: DB.getClients(),
     documents: DB.getDocuments(),
+    expenses: DB.getExpenses(),
   };
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -179,6 +214,7 @@ document.getElementById("importFile").addEventListener("change", (e) => {
       if (data.settings) DB.saveSettings(data.settings);
       if (data.clients) DB.saveClients(data.clients);
       if (data.documents) DB.saveDocuments(data.documents);
+      if (data.expenses) DB.saveExpenses(data.expenses);
       toast("הגיבוי שוחזר בהצלחה");
       setTimeout(() => location.href = "index.html", 800);
     } catch (err) {
@@ -187,6 +223,77 @@ document.getElementById("importFile").addEventListener("change", (e) => {
   };
   reader.readAsText(file);
 });
+
+/* ---------------- Google Drive sync UI ---------------- */
+
+document.getElementById("googleClientId").value = DriveSync.getClientId();
+
+document.getElementById("saveClientIdBtn").addEventListener("click", () => {
+  DriveSync.setClientId(document.getElementById("googleClientId").value);
+  toast("ה-Client ID נשמר");
+});
+
+document.getElementById("driveConnectBtn").addEventListener("click", async () => {
+  const id = document.getElementById("googleClientId").value.trim();
+  if (!id) { alert("יש להדביק ולשמור Client ID קודם (ראו הוראות למעלה)"); return; }
+  DriveSync.setClientId(id);
+  const btn = document.getElementById("driveConnectBtn");
+  btn.disabled = true;
+  btn.textContent = "מתחבר...";
+  try {
+    await DriveSync.connect();
+    toast("התחברת לגוגל דרייב, הסנכרון פעיל");
+  } catch (e) {
+    alert("ההתחברות נכשלה: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔗 התחברות עם Google";
+    renderDriveStatus();
+  }
+});
+
+document.getElementById("driveDisconnectBtn").addEventListener("click", () => {
+  if (!confirm("ניתוק יעצור את הסנכרון האוטומטי בדפדפן זה. קובץ הגיבוי יישאר בדרייב שלך. להמשיך?")) return;
+  DriveSync.disconnect();
+  renderDriveStatus();
+});
+
+document.getElementById("driveSyncNowBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("driveSyncNowBtn");
+  btn.disabled = true;
+  btn.textContent = "מסנכרן...";
+  try {
+    await DriveSync.syncNow();
+    toast("הסנכרון הושלם");
+  } catch (e) {
+    alert("הסנכרון נכשל: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔄 סנכרן עכשיו";
+    renderDriveStatus();
+  }
+});
+
+function renderDriveStatus() {
+  const st = DriveSync.getStatus();
+  document.getElementById("driveConnectBtn").style.display = st.connected ? "none" : "";
+  document.getElementById("driveDisconnectBtn").style.display = st.connected ? "" : "none";
+  document.getElementById("driveSyncNowBtn").style.display = st.connected ? "" : "none";
+  const statusEl = document.getElementById("driveStatus");
+  if (!st.connected) {
+    statusEl.textContent = "לא מחובר. הנתונים נשמרים רק בדפדפן זה.";
+  } else if (st.lastError) {
+    statusEl.textContent = "מחובר, אך הסנכרון האחרון נכשל: " + st.lastError + " — נסו \"סנכרן עכשיו\" או התחברו מחדש.";
+    statusEl.style.color = "var(--danger, #ef4444)";
+  } else {
+    statusEl.style.color = "";
+    statusEl.textContent = st.lastSync
+      ? "מחובר. סונכרן לאחרונה ב-" + new Date(st.lastSync).toLocaleString("he-IL")
+      : "מחובר. מסנכרן...";
+  }
+}
+DriveSync.onStatusChange(renderDriveStatus);
+renderDriveStatus();
 </script>
 </body>
 </html>

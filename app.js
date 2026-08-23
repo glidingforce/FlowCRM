@@ -94,6 +94,10 @@ function loadJSON(key, fallback) {
 }
 function saveJSON(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+  // Let the (optional) Google Drive sync module know local data changed,
+  // so it can queue a debounced upload. drive-sync.js may not be loaded
+  // on every page in older cached versions, so this is guarded.
+  if (typeof DriveSync !== "undefined") DriveSync.noteLocalWrite(key);
 }
 
 function uid(prefix) {
@@ -248,6 +252,21 @@ const FLOWCRM_ICON_SVG = `
   <path d="M33 55 l11 11 22-24" fill="none" stroke="#22c55e" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`.trim();
 
+// Sidebar-specific variant: the plain FLOWCRM_ICON_SVG has a navy (#1e3a5f)
+// circle fill, which is nearly identical to the sidebar's own navy
+// background -- the circle's edge disappears and the icon looks like a
+// stray floating document instead of a badge. This variant swaps the
+// circle fill to white and the document to navy, so it reads as a solid
+// badge against the navy sidebar. Used ONLY in renderSidebar() below; the
+// original stays in print/light contexts where it already reads fine.
+const FLOWCRM_ICON_SVG_ON_NAVY = `
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="50" cy="50" r="50" fill="#ffffff"/>
+  <path d="M32 22 h24 l12 12 v42 a4 4 0 0 1-4 4 H32 a4 4 0 0 1-4-4 V26 a4 4 0 0 1 4-4 z" fill="#1e3a5f"/>
+  <path d="M56 22 v10 a2 2 0 0 0 2 2 h10 z" fill="#c7d4e3"/>
+  <path d="M33 55 l11 11 22-24" fill="none" stroke="#22c55e" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`.trim();
+
 function renderSidebar(active) {
   const items = [
     ["index.html", "לוח בקרה"],
@@ -264,7 +283,7 @@ function renderSidebar(active) {
   <button class="hamburger" id="hamburgerBtn">☰</button>
   <aside class="sidebar" id="sidebar">
     <div class="brand-row">
-      <span class="brand-icon">${FLOWCRM_ICON_SVG}</span>
+      <span class="brand-icon">${FLOWCRM_ICON_SVG_ON_NAVY}</span>
       <div>
         <div class="brand">FlowCRM</div>
         <div class="brand-sub">מערכת ניהול מסמכים עצמאית</div>
