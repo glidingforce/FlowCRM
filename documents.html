@@ -117,10 +117,7 @@ function render() {
     return `
     <div class="doc-card status-${statusClass}">
       ${adminMode ? `<label class="doc-select"><input type="checkbox" data-sel="${d.id}" ${selected.has(d.id) ? "checked" : ""}></label>` : ""}
-      ${docBadge(d.docType)} ${statusBadge(d.isCanceled ? "canceled" : d.status)}
-      <div class="amount">${money(docTotal(d))}</div>
-      <div class="name">${d.clientName || ""}</div>
-      <div class="meta">מס' ${d.docNumber} · ${formatDateHe(d.issueDate)}</div>
+      ${docCardInner(d, docTotal(d))}
       ${d.workSubject ? `<div class="meta">${d.workSubject}</div>` : ""}
       <div class="actions">
         <a class="btn" href="view.html?id=${d.id}">👁 צפייה</a>

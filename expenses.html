@@ -138,6 +138,7 @@ function render() {
 function openDialog(id) {
   editingId = id || null;
   pendingReceipt = undefined;
+  pendingReceiptPromise = null;
   const e = id ? DB.getExpense(id) : {};
   document.getElementById("dialogTitle").textContent = id ? "עריכת הוצאה" : "הוצאה חדשה";
   document.getElementById("fDate").value = e.date || new Date().toISOString().slice(0, 10);
@@ -158,43 +159,93 @@ function renderReceiptPreview(dataUrl) {
     dataUrl.startsWith("data:image") ? `<img src="${dataUrl}">` : "📄 PDF"
   }</div><button type="button" class="btn" id="clearReceiptBtn" style="margin-top:6px;">הסרת קבלה</button>`;
   const clearBtn = document.getElementById("clearReceiptBtn");
-  if (clearBtn) clearBtn.addEventListener("click", () => { pendingReceipt = null; renderReceiptPreview(null); });
+  if (clearBtn) clearBtn.addEventListener("click", () => { pendingReceipt = null; pendingReceiptPromise = null; renderReceiptPreview(null); });
 }
 
-document.getElementById("fReceipt").addEventListener("change", async (e) => {
+// pendingReceiptPromise (not just pendingReceipt) is what Save actually
+// waits on. Processing a file — especially a multi-MB PDF, which unlike an
+// uploaded image isn't resized/recompressed — takes a moment. The old code
+// set pendingReceipt only once that finished, so clicking "שמירה" quickly
+// after picking a file could save with no receipt attached at all: this
+// is the most likely reason a receipt "didn't stay". Storing the promise
+// immediately and awaiting it in the save handler closes that gap
+// regardless of how fast you click.
+let pendingReceiptPromise = null;
+const MAX_RECEIPT_BYTES = 8 * 1024 * 1024; // 8MB raw file — see quota note below
+
+document.getElementById("fReceipt").addEventListener("change", (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  const result = await fileToStoredDataURL(file, 1400, 0.8);
-  pendingReceipt = result;
-  renderReceiptPreview(result.dataUrl);
+  if (file.size > MAX_RECEIPT_BYTES) {
+    alert("הקובץ גדול מדי (מעל 8MB). כל הנתונים נשמרים בדפדפן עצמו, שיש לו מקום מוגבל — נסו לצלם/לסרוק ברזולוציה נמוכה יותר, או לכווץ את ה-PDF.");
+    e.target.value = "";
+    pendingReceiptPromise = null;
+    return;
+  }
+  document.getElementById("receiptPreview").innerHTML = `<span style="color:var(--text-muted);font-size:12px;">מעבד קובץ...</span>`;
+  pendingReceiptPromise = fileToStoredDataURL(file, 1400, 0.8);
+  pendingReceiptPromise.then(result => {
+    pendingReceipt = result;
+    renderReceiptPreview(result.dataUrl);
+  }).catch(() => {
+    alert("שגיאה בעיבוד קובץ הקבלה — נסו קובץ אחר.");
+    pendingReceiptPromise = null;
+  });
 });
 
 document.getElementById("newExpenseBtn").addEventListener("click", () => openDialog(null));
 document.getElementById("closeDialogBtn").addEventListener("click", closeDialog);
-document.getElementById("saveExpenseBtn").addEventListener("click", () => {
-  const amount = parseFloat(document.getElementById("fAmount").value) || 0;
-  const existing = editingId ? DB.getExpense(editingId) : {};
-  let receiptData = existing.receiptData || null;
-  let receiptMime = existing.receiptMime || null;
-  if (pendingReceipt === null) { receiptData = null; receiptMime = null; }
-  else if (pendingReceipt) { receiptData = pendingReceipt.dataUrl; receiptMime = pendingReceipt.mime; }
+document.getElementById("saveExpenseBtn").addEventListener("click", async () => {
+  const saveBtn = document.getElementById("saveExpenseBtn");
+  saveBtn.disabled = true;
+  saveBtn.textContent = "שומר...";
+  try {
+    const amount = parseFloat(document.getElementById("fAmount").value) || 0;
+    const existing = editingId ? DB.getExpense(editingId) : {};
+    let receiptData = existing.receiptData || null;
+    let receiptMime = existing.receiptMime || null;
+    if (pendingReceiptPromise) {
+      // Always wait for the file to finish processing before saving,
+      // however recently it was selected.
+      const result = await pendingReceiptPromise;
+      receiptData = result.dataUrl;
+      receiptMime = result.mime;
+    } else if (pendingReceipt === null) {
+      receiptData = null; receiptMime = null;
+    }
 
-  const expense = {
-    id: editingId || uid("exp"),
-    date: document.getElementById("fDate").value,
-    amount,
-    supplier: document.getElementById("fSupplier").value,
-    category: document.getElementById("fCategory").value,
-    description: document.getElementById("fDescription").value,
-    receiptData,
-    receiptMime,
-    createdAt: existing.createdAt || new Date().toISOString(),
-  };
-  DB.upsertExpense(expense);
-  closeDialog();
-  refreshCategoryFilterOptions();
-  render();
-  toast("ההוצאה נשמרה");
+    const expense = {
+      id: editingId || uid("exp"),
+      date: document.getElementById("fDate").value,
+      amount,
+      supplier: document.getElementById("fSupplier").value,
+      category: document.getElementById("fCategory").value,
+      description: document.getElementById("fDescription").value,
+      receiptData,
+      receiptMime,
+      createdAt: existing.createdAt || new Date().toISOString(),
+    };
+    DB.upsertExpense(expense);
+    closeDialog();
+    refreshCategoryFilterOptions();
+    render();
+    toast("ההוצאה נשמרה");
+  } catch (err) {
+    // Most likely cause: the browser's storage quota for this site is
+    // full (all data — documents, clients, receipts, everything — shares
+    // one small pool, typically 5-10MB). Earlier this failed completely
+    // silently, which is very likely the actual "receipt doesn't stay"
+    // bug — the save was throwing and nothing downstream of it ran, but
+    // nothing told you that.
+    if (err && (err.name === "QuotaExceededError" || /quota/i.test(err.message || ""))) {
+      alert("אין מקום פנוי לשמור את הקבלה בדפדפן (המכסה המקומית מלאה). נסו קובץ קטן יותר, או מחקו קבלות ישנות שאינן נחוצות.");
+    } else {
+      alert("שמירת ההוצאה נכשלה: " + (err && err.message ? err.message : err));
+    }
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = "שמירה";
+  }
 });
 
 document.getElementById("categoryFilter").addEventListener("change", (e) => { categoryFilter = e.target.value; render(); });

@@ -25,31 +25,34 @@
         <div class="icon" style="background:#fef9c3;">🕐</div>
         <div><div class="num" id="statOpen">0</div><div class="label">מסמכים פתוחים</div></div>
       </div>
-      <div class="stat-card">
-        <div class="icon" style="background:#dbeafe;">📅</div>
-        <div><div class="num" id="statYear">₪0</div><div class="label">הכנסות השנה</div></div>
+      <div class="stat-card stat-card-net">
+        <div class="icon" style="background:#dbeafe;">💰</div>
+        <div>
+          <div class="num" id="statYearNet">₪0</div>
+          <div class="label">נטו השנה</div>
+          <div class="sub-breakdown">
+            <span>הכנסות: <b id="statYearIncome">₪0</b></span>
+            <span>הוצאות: <b id="statYearExpenses">₪0</b></span>
+          </div>
+        </div>
       </div>
       <div class="stat-card">
         <div class="icon" style="background:#dcfce7;">💲</div>
         <div><div class="num" id="statMonth">₪0</div><div class="label">הכנסות החודש</div></div>
       </div>
     </div>
-    <div class="stat-grid">
+    <div class="stat-grid stat-grid-3">
       <div class="stat-card">
-        <div class="icon" style="background:#f3e8ff;">📄</div>
-        <div><div class="num" id="statQuotes">0</div><div class="label">הצעות מחיר</div></div>
+        <div class="icon" style="background:#dcfce7;">🧾</div>
+        <div><div class="num" id="statReceipts">0</div><div class="label">קבלות</div></div>
       </div>
       <div class="stat-card">
         <div class="icon" style="background:#dbeafe;">📄</div>
         <div><div class="num" id="statInvoices">0</div><div class="label">חשבוניות עסקה</div></div>
       </div>
       <div class="stat-card">
-        <div class="icon" style="background:#dcfce7;">📄</div>
-        <div><div class="num" id="statReceipts">0</div><div class="label">קבלות</div></div>
-      </div>
-      <div class="stat-card">
-        <div class="icon" style="background:#eef2f7;">📁</div>
-        <div><div class="num" id="statTotal">0</div><div class="label">סה"כ מסמכים</div></div>
+        <div class="icon" style="background:#f3e8ff;">📝</div>
+        <div><div class="num" id="statQuotes">0</div><div class="label">הצעות מחיר</div></div>
       </div>
     </div>
 
@@ -81,15 +84,20 @@ function docTotal(d) {
 const closed = docs.filter(d => d.status === "closed" && !d.isCanceled);
 const yearRevenue = closed.filter(d => d.issueDate && d.issueDate.startsWith(String(thisYear))).reduce((s, d) => s + docTotal(d), 0);
 const monthRevenue = closed.filter(d => d.issueDate && d.issueDate.startsWith(thisMonth)).reduce((s, d) => s + docTotal(d), 0);
+const yearExpenses = DB.getExpenses()
+  .filter(e => e.date && e.date.startsWith(String(thisYear)))
+  .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+const yearNet = yearRevenue - yearExpenses;
 
 document.getElementById("statClients").textContent = clients.filter(c => c.active !== false).length;
 document.getElementById("statOpen").textContent = docs.filter(d => (d.status === "open" || d.status === "draft") && !d.isCanceled).length;
-document.getElementById("statYear").textContent = money(yearRevenue);
+document.getElementById("statYearNet").textContent = money(yearNet);
+document.getElementById("statYearIncome").textContent = money(yearRevenue);
+document.getElementById("statYearExpenses").textContent = money(yearExpenses);
 document.getElementById("statMonth").textContent = money(monthRevenue);
 document.getElementById("statQuotes").textContent = docs.filter(d => d.docType === "quote").length;
 document.getElementById("statInvoices").textContent = docs.filter(d => d.docType === "invoice").length;
 document.getElementById("statReceipts").textContent = docs.filter(d => d.docType === "receipt").length;
-document.getElementById("statTotal").textContent = docs.length;
 
 const recent = [...docs].sort((a, b) => (b.issueDate || "").localeCompare(a.issueDate || "")).slice(0, 6);
 const grid = document.getElementById("recentDocs");
@@ -98,11 +106,8 @@ if (!recent.length) {
 } else {
   grid.innerHTML = recent.map(d => `
     <div class="doc-card">
-      ${docBadge(d.docType)} ${statusBadge(d.status)}
-      <div class="amount">${money(docTotal(d))}</div>
-      <div class="name">${d.clientName || ""}</div>
-      <div class="meta">מס' ${d.docNumber} · ${formatDateHe(d.issueDate)}</div>
-      <div class="actions"><a class="btn" href="view.html?id=${d.id}">צפייה</a></div>
+      ${docCardInner(d, docTotal(d))}
+      <div class="actions"><a class="btn" href="view.html?id=${d.id}">👁 צפייה</a></div>
     </div>`).join("");
 }
 </script>

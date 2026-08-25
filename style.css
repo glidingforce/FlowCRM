@@ -262,7 +262,13 @@ table.items-table input { width: 100%; border: 1px solid var(--border); border-r
 .stat-card .icon {
   width: 42px; height: 42px; border-radius: 10px;
   display: flex; align-items: center; justify-content: center; font-size: 18px;
+  flex-shrink: 0;
 }
+.stat-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.stat-card-net .sub-breakdown {
+  display: flex; gap: 10px; font-size: 11px; color: var(--text-muted); margin-top: 2px; flex-wrap: wrap;
+}
+.stat-card-net .sub-breakdown b { color: var(--text); font-weight: 600; }
 
 /* document cards / list */
 .doc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
@@ -291,9 +297,14 @@ table.items-table input { width: 100%; border: 1px solid var(--border); border-r
 .badge-draft { background: #fee2e2; color: #b91c1c; }
 .badge-canceled { background: #fecaca; color: #991b1b; }
 
-.doc-card .amount { font-size: 20px; font-weight: 700; margin: 6px 0 2px; }
-.doc-card .name { font-weight: 600; margin-top: 6px; }
+.doc-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.doc-card .amount { font-size: 20px; font-weight: 700; }
+.doc-card .name { font-weight: 600; margin-top: 8px; }
 .doc-card .meta { font-size: 12px; color: var(--text-muted); }
+.doc-card-status {
+  font-size: 12px; color: var(--text-muted); margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
 .doc-card .actions { margin-top: 10px; display: flex; gap: 8px; }
 
 .search-bar input {
@@ -347,7 +358,7 @@ table.items-table input { width: 100%; border: 1px solid var(--border); border-r
 .print-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #888; padding-bottom: 12px; margin-bottom: 16px; }
 .print-header .biz-name { font-size: 30px; font-weight: 800; color: var(--navy); }
 .print-header .biz-details { text-align: right; font-size: 12px; color: #333; line-height: 1.6; }
-.print-meta { display: flex; justify-content: space-between; margin-bottom: 14px; font-size: 13px; }
+.print-meta { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; font-size: 13px; }
 .print-meta .to b { font-size: 15px; }
 .print-title { text-align: center; font-size: 20px; font-weight: 700; margin: 10px 0 2px; }
 .print-subtitle { text-align: center; font-size: 13px; color: #555; margin-bottom: 12px; }
@@ -433,16 +444,21 @@ table.data-table tfoot td { font-weight: 700; border-top: 2px solid var(--border
   .print-page {
     position: absolute; top: 0; left: 0; border: none; box-shadow: none; margin: 0; padding: 0;
     width: 100%; max-width: 100%; font-size: 12px;
+    display: flex; flex-direction: column; min-height: 200mm;
   }
-  /* Earlier versions forced .print-page to a fixed min-height (~262mm) and
-     pinned the footer to it with margin-top:auto, so the footer sat flush
-     against the true bottom of the page. That relied on this browser's
-     exact A4 content-box math and broke on iPhone/Safari printing (two
-     pages, mostly blank, disproportionate) because iOS doesn't compute
-     that the same way. Trading pixel-perfect footer position for a
-     footer that reliably stays on ONE page everywhere: just a fixed gap
-     above it instead of forcing full-page height. */
-  .print-footer { margin-top: 26px; }
+  /* A previous version forced .print-page to ~262mm (a ~15mm safety margin
+     under A4's ~277mm printable content height) to pin the footer flush
+     against the true page bottom. That margin turned out too tight on
+     iPhone/Safari — it computed the page differently and the footer
+     overflowed to a near-blank second page. This version uses a much more
+     conservative 200mm — about 77mm of slack — so the footer sits
+     noticeably lower on short/medium documents without forcing full-page
+     height. It won't sit flush against the literal bottom edge like
+     before, but should be safe across engines. I can't test real iOS
+     Safari print from here, so if this STILL pushes to a second page on
+     an iPhone, that's a real report to send back — the safe fallback
+     (a small fixed gap, no page-height forcing at all) is one line away. */
+  .print-footer { margin-top: auto; }
   @page { size: A4; margin: 10mm; }
   .no-print { display: none !important; }
   .print-table, .print-payment table { page-break-inside: auto; }

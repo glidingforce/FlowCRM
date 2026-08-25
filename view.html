@@ -38,8 +38,12 @@
         <div style="text-align:left;">
           <div>תאריך <span id="metaDate"></span></div>
           <div style="color:#666;">מסמך ממוחשב, חתום דיגיטלית</div>
-          <img class="print-stamp" src="stamp.png" alt="מסמך מאומת - חתום דיגיטלית">
         </div>
+        <!-- A sibling of the date column, not nested inside it, so
+             justify-content:space-between on .print-meta pushes it all
+             the way to the page's true left edge instead of just left
+             of the date text. -->
+        <img class="print-stamp" src="stamp.png" alt="מסמך מאומת - חתום דיגיטלית">
       </div>
 
       <div class="print-title" id="docTitle"></div>

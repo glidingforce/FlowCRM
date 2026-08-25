@@ -25,6 +25,21 @@ const STATUS = {
   canceled: { label: "מבוטל", badge: "badge-canceled" },
 };
 
+/* The 7 largest Israeli banks with their official Bank of Israel clearing
+   codes, confirmed against ezcount.co.il/bank-numbers (Aug 2026). Excludes
+   a couple of banks whose code has shifted post-merger (e.g. former Bank
+   Igud/Otsar HaChayal) since that couldn't be independently confirmed —
+   "אחר" covers those and anything else. */
+const ISRAELI_BANKS = [
+  "בנק לאומי (10)",
+  "בנק הפועלים (12)",
+  "בנק דיסקונט (11)",
+  "בנק מזרחי טפחות (20)",
+  "הבנק הבינלאומי הראשון (31)",
+  "בנק ירושלים (54)",
+  "בנק יהב (4)",
+];
+
 /* Only documents of type "receipt" (קבלה) carry payment details — an
    invoice (חשבונית עסקה) records a debt, a receipt records money that
    actually changed hands, a quote isn't a transaction at all. Each
@@ -52,7 +67,7 @@ const PAYMENT_METHOD_DEFS = {
   },
   "העברה בנקאית": {
     fields: [
-      { key: "bank", label: "בנק" },
+      { key: "bank", label: "בנק", type: "bank" },
       { key: "branch", label: "סניף" },
       { key: "account", label: "מספר חשבון" },
     ],
@@ -60,7 +75,7 @@ const PAYMENT_METHOD_DEFS = {
   "צ'ק בנקאי": {
     fields: [
       { key: "checkNumber", label: "מספר צ'ק" },
-      { key: "bank", label: "בנק" },
+      { key: "bank", label: "בנק", type: "bank" },
       { key: "branch", label: "סניף" },
       { key: "account", label: "מספר חשבון" },
     ],
@@ -191,15 +206,32 @@ const DB = {
     DB.saveExpenses(DB.getExpenses().filter(e => e.id !== id));
   },
 
+  // The next number for a document type is always one more than the
+  // HIGHEST number actually in use for that type — not just whatever the
+  // Settings counter says. The counter alone could drift out of sync (a
+  // document number edited by hand, a restored backup, etc.); reading the
+  // real documents every time means numbering always picks up exactly
+  // where the last real document left off, per docType.
   nextDocNumber(docType) {
     const s = DB.getSettings();
     const key = docType === "invoice" ? "nextInvoiceNumber" : docType === "receipt" ? "nextReceiptNumber" : "nextQuoteNumber";
-    return s[key];
+    const used = DB.getDocuments()
+      .filter(d => d.docType === docType)
+      .map(d => parseInt(d.docNumber, 10))
+      .filter(n => !isNaN(n));
+    const maxUsed = used.length ? Math.max(...used) : 0;
+    return Math.max(maxUsed + 1, s[key] || 1);
   },
-  bumpDocNumber(docType) {
+  // Pass the docNumber that was ACTUALLY saved (it may differ from what
+  // nextDocNumber suggested, if the user typed their own number) so the
+  // Settings counter — used only as a floor/fallback above — advances past
+  // whatever was really used.
+  bumpDocNumber(docType, usedNumber) {
     const s = DB.getSettings();
     const key = docType === "invoice" ? "nextInvoiceNumber" : docType === "receipt" ? "nextReceiptNumber" : "nextQuoteNumber";
-    s[key] = s[key] + 1;
+    const n = parseInt(usedNumber, 10);
+    const next = (!isNaN(n) ? n : (s[key] || 1)) + 1;
+    if (next > (s[key] || 1)) s[key] = next;
     DB.saveSettings(s);
   },
 };
@@ -223,10 +255,21 @@ function money(n) {
   const v = (Math.round((n + Number.EPSILON) * 100) / 100).toFixed(2);
   return "₪" + v;
 }
+const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 function formatDateHe(dateStr) {
   if (!dateStr) return "";
   const [y, m, d] = dateStr.split("-");
-  return `${d}/${m}/${y}`;
+  const mi = parseInt(m, 10) - 1;
+  const mon = MONTH_ABBR[mi] || m;
+  const formatted = `${d}/${mon}/${y.slice(2)}`;
+  // Mixing letters (the month) with digits and slashes inside an RTL page
+  // triggers the browser's bidi algorithm to reorder the pieces (it comes
+  // out "Aug/26/09" instead of "09/Aug/26") — plain numeric dates never had
+  // this problem since digits+slashes alone don't confuse it. Wrapping in
+  // Unicode isolate marks (U+2066/U+2069) forces it to treat the whole
+  // thing as one left-to-right unit. Plain characters, not HTML, so this
+  // is safe whether the caller uses textContent or innerHTML.
+  return "⁦" + formatted + "⁩";
 }
 
 /* ---------------- Shared UI helpers ---------------- */
@@ -349,4 +392,22 @@ function docBadge(docType) {
 function statusBadge(status) {
   const s = STATUS[status] || STATUS.open;
   return `<span class="badge ${s.badge}">${s.label}</span>`;
+}
+
+// Shared doc-card inner markup used by both index.html and documents.html,
+// so the two never visually drift apart. totalAmount is passed in rather
+// than recomputed here since each page already has its own docTotal(d)
+// (it needs the current VAT rate from Settings, which this file doesn't
+// reach into on its own).
+function docCardInner(d, totalAmount) {
+  const statusClass = d.isCanceled ? "canceled" : d.status;
+  const statusLabel = (STATUS[statusClass] || STATUS.open).label;
+  return `
+    <div class="doc-card-head">
+      ${docBadge(d.docType)}
+      <div class="amount">${money(totalAmount)}</div>
+    </div>
+    <div class="name">${d.clientName || ""}</div>
+    <div class="meta">מס' ${d.docNumber} · ${formatDateHe(d.issueDate)}</div>
+    <div class="doc-card-status">סטטוס: ${statusLabel}</div>`;
 }
