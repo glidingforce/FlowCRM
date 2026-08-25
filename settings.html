@@ -263,7 +263,9 @@ document.getElementById("driveSyncNowBtn").addEventListener("click", async () =>
   btn.disabled = true;
   btn.textContent = "מסנכרן...";
   try {
-    await DriveSync.syncNow();
+    // interactive:true because this call is directly inside a click — a
+    // Google popup is allowed to open here if a fresh token is needed.
+    await DriveSync.syncNow({ interactive: true });
     toast("הסנכרון הושלם");
   } catch (e) {
     alert("הסנכרון נכשל: " + e.message);
@@ -281,9 +283,16 @@ function renderDriveStatus() {
   document.getElementById("driveSyncNowBtn").style.display = st.connected ? "" : "none";
   const statusEl = document.getElementById("driveStatus");
   if (!st.connected) {
+    statusEl.style.color = "";
     statusEl.textContent = "לא מחובר. הנתונים נשמרים רק בדפדפן זה.";
+  } else if (st.needsReconnect) {
+    // Routine, not an error: the ~1h token expired while the app sat idle.
+    // No popup was attempted automatically on purpose — click to resume.
+    statusEl.style.color = "";
+    statusEl.textContent = "החיבור פג (זה קורה אחרי כשעה של חוסר פעילות) — לחצו \"סנכרן עכשיו\" כדי להמשיך."
+      + (st.lastSync ? " סונכרן לאחרונה ב-" + new Date(st.lastSync).toLocaleString("he-IL") + "." : "");
   } else if (st.lastError) {
-    statusEl.textContent = "מחובר, אך הסנכרון האחרון נכשל: " + st.lastError + " — נסו \"סנכרן עכשיו\" או התחברו מחדש.";
+    statusEl.textContent = "מחובר, אך הסנכרון האחרון נכשל: " + st.lastError;
     statusEl.style.color = "var(--danger, #ef4444)";
   } else {
     statusEl.style.color = "";

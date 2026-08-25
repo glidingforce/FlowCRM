@@ -44,16 +44,7 @@
               <input type="text" id="workSubject" placeholder="לדוגמה: החלפת לוח חשמל, קבלת תשלום">
             </div>
           </div>
-          <div class="field-row">
-            <div class="field">
-              <label>סטטוס מסמך</label>
-              <select id="status">
-                <option value="open">פתוח</option>
-                <option value="closed">סגור</option>
-                <option value="draft">טיוטה</option>
-              </select>
-            </div>
-          </div>
+          <p id="statusHint" style="font-size:12px;color:var(--text-muted);margin:0;"></p>
         </div>
       </div>
 
@@ -173,7 +164,22 @@ function refillDocNumber() {
 function updatePaymentsVisibility() {
   document.getElementById("paymentsCard").style.display = docType.value === "receipt" ? "" : "none";
 }
-docType.addEventListener("change", () => { refillDocNumber(); updatePaymentsVisibility(); });
+// Status is no longer a free-choice field here — it follows the document
+// type automatically: a receipt IS the closing event (money already
+// received) so it's always "closed"; an invoice or quote starts "open"
+// and only becomes "closed" through the "סגור עם..." conversion in
+// view.html, or via admin mode. This just updates the explanatory text.
+function updateStatusHint() {
+  const hint = document.getElementById("statusHint");
+  if (docType.value === "receipt") {
+    hint.textContent = "קבלה נשמרת תמיד כמסמך סגור — היא עצמה מהווה את אירוע הסגירה.";
+  } else {
+    hint.textContent = existingDoc && existingDoc.status === "closed"
+      ? "מסמך זה סגור (נסגר עם מסמך אחר). לא ניתן לשנות זאת מכאן — רק במצב מנהל."
+      : "המסמך יישמר כ\"פתוח\" ויסומן \"סגור\" אוטומטית כשתשתמשו ב-\"סגור עם...\" בתצוגת המסמך.";
+  }
+}
+docType.addEventListener("change", () => { refillDocNumber(); updatePaymentsVisibility(); updateStatusHint(); });
 
 const settings = DB.getSettings();
 document.getElementById("vatRateLabel").textContent = settings.vatRate;
@@ -304,7 +310,6 @@ if (existingDoc) {
   clientAddress.value = existingDoc.clientAddress || "";
   items = existingDoc.items && existingDoc.items.length ? existingDoc.items : items;
   document.getElementById("includeVat").checked = !!existingDoc.includeVat;
-  document.getElementById("status").value = existingDoc.status || "open";
   payments = existingDoc.payments || [];
   document.getElementById("noteBody").value = existingDoc.noteBody || "";
 } else {
@@ -315,6 +320,7 @@ renderItems();
 recalc();
 renderPayments();
 updatePaymentsVisibility();
+updateStatusHint();
 
 // Duplicate numbers are only blocked within the same document type — the
 // invoice/receipt/quote counters in Settings are independent sequences, so
@@ -327,7 +333,15 @@ function isDuplicateDocNumber() {
   return DB.getDocuments().some(d => d.id !== selfId && d.docType === type && String(d.docNumber).trim() === num);
 }
 
-function collectDoc(status) {
+// Auto-determined status — see updateStatusHint() above for the reasoning.
+// statusOverride exists only for the "preview as draft" path below; normal
+// saves never pass one.
+function autoStatus() {
+  if (docType.value === "receipt") return "closed";
+  return existingDoc ? existingDoc.status : "open";
+}
+
+function collectDoc(statusOverride) {
   const isNew = !existingDoc;
   const doc = {
     id: existingDoc ? existingDoc.id : uid("doc"),
@@ -340,7 +354,7 @@ function collectDoc(status) {
     clientAddress: clientAddress.value,
     items: items.filter(it => it.desc || it.qty || it.price),
     includeVat: document.getElementById("includeVat").checked,
-    status: status || document.getElementById("status").value,
+    status: statusOverride || autoStatus(),
     payments: docType.value === "receipt" ? payments : [],
     noteBody: document.getElementById("noteBody").value,
     isCanceled: existingDoc ? existingDoc.isCanceled : false,
@@ -367,7 +381,9 @@ document.getElementById("previewBtn").addEventListener("click", () => {
     alert(`כבר קיים מסמך מסוג ${DOC_TYPES[docType.value].label} עם מספר ${docNumber.value}. שנה את מספר המסמך ונסה שוב.`);
     return;
   }
-  const doc = collectDoc(existingDoc ? existingDoc.status : "draft");
+  // Receipts are always "closed" (see autoStatus) — the draft concept only
+  // makes sense for invoice/quote, which aren't a completed transaction yet.
+  const doc = collectDoc(existingDoc ? existingDoc.status : (docType.value === "receipt" ? "closed" : "draft"));
   location.href = "view.html?id=" + doc.id;
 });
 </script>
