@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>לוח בקרה - FlowCRM</title>
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1e3a5f">
+</head>
+<body>
+<div class="app-shell">
+  <div class="main">
+    <h1 class="page-title">לוח בקרה</h1>
+    <p class="page-subtitle">סקירה כללית של העסק</p>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="icon" style="background:#f3e8ff;">👥</div>
+        <div><div class="num" id="statClients">0</div><div class="label">לקוחות</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="icon" style="background:#fef9c3;">🕐</div>
+        <div><div class="num" id="statOpen">0</div><div class="label">מסמכים פתוחים</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="icon" style="background:#dbeafe;">📅</div>
+        <div><div class="num" id="statYear">₪0</div><div class="label">הכנסות השנה</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="icon" style="background:#dcfce7;">💲</div>
+        <div><div class="num" id="statMonth">₪0</div><div class="label">הכנסות החודש</div></div>
+      </div>
+    </div>
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="icon" style="background:#f3e8ff;">📄</div>
+        <div><div class="num" id="statQuotes">0</div><div class="label">הצעות מחיר</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="icon" style="background:#dbeafe;">📄</div>
+        <div><div class="num" id="statInvoices">0</div><div class="label">חשבוניות עסקה</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="icon" style="background:#dcfce7;">📄</div>
+        <div><div class="num" id="statReceipts">0</div><div class="label">קבלות</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="icon" style="background:#eef2f7;">📁</div>
+        <div><div class="num" id="statTotal">0</div><div class="label">סה"כ מסמכים</div></div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:20px 0 10px;">
+      <h2 style="font-size:18px;margin:0;">מסמכים אחרונים</h2>
+      <a href="documents.html">צפה בהכל →</a>
+    </div>
+    <div class="doc-grid" id="recentDocs"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="drive-sync.js"></script>
+<script>
+mountShell("index.html");
+
+const docs = DB.getDocuments();
+const clients = DB.getClients();
+const now = new Date();
+const thisMonth = now.toISOString().slice(0, 7);
+const thisYear = now.getFullYear();
+
+function docTotal(d) {
+  const subtotal = calcSubtotal(d.items || []);
+  const tax = calcTax(subtotal, d.includeVat, DB.getSettings().vatRate);
+  return calcTotal(subtotal, tax);
+}
+
+const closed = docs.filter(d => d.status === "closed" && !d.isCanceled);
+const yearRevenue = closed.filter(d => d.issueDate && d.issueDate.startsWith(String(thisYear))).reduce((s, d) => s + docTotal(d), 0);
+const monthRevenue = closed.filter(d => d.issueDate && d.issueDate.startsWith(thisMonth)).reduce((s, d) => s + docTotal(d), 0);
+
+document.getElementById("statClients").textContent = clients.filter(c => c.active !== false).length;
+document.getElementById("statOpen").textContent = docs.filter(d => (d.status === "open" || d.status === "draft") && !d.isCanceled).length;
+document.getElementById("statYear").textContent = money(yearRevenue);
+document.getElementById("statMonth").textContent = money(monthRevenue);
+document.getElementById("statQuotes").textContent = docs.filter(d => d.docType === "quote").length;
+document.getElementById("statInvoices").textContent = docs.filter(d => d.docType === "invoice").length;
+document.getElementById("statReceipts").textContent = docs.filter(d => d.docType === "receipt").length;
+document.getElementById("statTotal").textContent = docs.length;
+
+const recent = [...docs].sort((a, b) => (b.issueDate || "").localeCompare(a.issueDate || "")).slice(0, 6);
+const grid = document.getElementById("recentDocs");
+if (!recent.length) {
+  grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">אין עדיין מסמכים. <a href="create.html">צור מסמך ראשון</a></div>`;
+} else {
+  grid.innerHTML = recent.map(d => `
+    <div class="doc-card">
+      ${docBadge(d.docType)} ${statusBadge(d.status)}
+      <div class="amount">${money(docTotal(d))}</div>
+      <div class="name">${d.clientName || ""}</div>
+      <div class="meta">מס' ${d.docNumber} · ${formatDateHe(d.issueDate)}</div>
+      <div class="actions"><a class="btn" href="view.html?id=${d.id}">צפייה</a></div>
+    </div>`).join("");
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>מסמכים - FlowCRM</title>
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1e3a5f">
+</head>
+<body>
+<div class="app-shell">
+  <div class="main">
+    <h1 class="page-title">מסמכים</h1>
+    <p class="page-subtitle" id="countLabel"></p>
+
+    <div class="doc-toolbar">
+      <a href="create.html" class="btn btn-primary">+ מסמך חדש</a>
+      <button type="button" class="btn" id="adminModeBtn">🛡 מצב מנהל</button>
+      <button type="button" class="btn" id="exportZipBtn">⬇ ייצוא ZIP</button>
+    </div>
+
+    <div class="admin-bar" id="adminBar" style="display:none;">
+      <span class="count" id="selectedCount">0 נבחרו</span>
+      <button type="button" class="btn" id="selectAllBtn">בחר הכל</button>
+      <button type="button" class="btn" id="clearSelectionBtn">נקה בחירה</button>
+      <button type="button" class="btn btn-danger" id="bulkCancelBtn">בטל מסמכים נבחרים</button>
+      <select id="bulkStatusSelect">
+        <option value="open">פתוח</option>
+        <option value="closed">סגור</option>
+        <option value="draft">טיוטה</option>
+      </select>
+      <button type="button" class="btn" id="bulkStatusBtn">עדכן סטטוס לנבחרים</button>
+      <button type="button" class="btn btn-danger" id="bulkDeleteBtn">מחק לצמיתות</button>
+      <button type="button" class="btn btn-ghost" id="exitAdminBtn">יציאה ממצב מנהל</button>
+    </div>
+
+    <div class="search-bar"><input type="text" id="search" placeholder="חיפוש לפי לקוח, מספר מסמך או נושא עבודה..."></div>
+    <div class="tabs" id="tabs">
+      <button data-t="all" class="active">הכל</button>
+      <button data-t="invoice">חשבוניות</button>
+      <button data-t="receipt">קבלות</button>
+      <button data-t="quote">הצעות מחיר</button>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>סטטוס</label>
+        <select id="statusFilter">
+          <option value="">כל הסטטוסים</option>
+          <option value="open">פתוח</option>
+          <option value="closed">סגור</option>
+          <option value="draft">טיוטה</option>
+          <option value="canceled">מבוטל</option>
+        </select>
+      </div>
+      <div class="field"><label>מתאריך</label><input type="date" id="dateFrom"></div>
+      <div class="field"><label>עד תאריך</label><input type="date" id="dateTo"></div>
+    </div>
+
+    <div class="doc-grid" id="grid"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="drive-sync.js"></script>
+<script src="jszip.min.js"></script>
+<script>
+mountShell("documents.html");
+let activeTab = "all";
+let query = "";
+let statusFilter = "";
+let dateFrom = "";
+let dateTo = "";
+let adminMode = false;
+let selected = new Set();
+
+function docTotal(d) {
+  const subtotal = calcSubtotal(d.items || []);
+  const tax = calcTax(subtotal, d.includeVat, DB.getSettings().vatRate);
+  return calcTotal(subtotal, tax);
+}
+
+function getFilteredDocs() {
+  let docs = [...DB.getDocuments()].sort((a, b) => (b.issueDate || "").localeCompare(a.issueDate || ""));
+  if (activeTab !== "all") docs = docs.filter(d => d.docType === activeTab);
+  if (statusFilter) docs = docs.filter(d => (d.isCanceled ? "canceled" : d.status) === statusFilter);
+  if (dateFrom) docs = docs.filter(d => (d.issueDate || "") >= dateFrom);
+  if (dateTo) docs = docs.filter(d => (d.issueDate || "") <= dateTo);
+  if (query) {
+    const q = query.toLowerCase();
+    docs = docs.filter(d =>
+      (d.clientName || "").toLowerCase().includes(q) ||
+      String(d.docNumber).includes(q) ||
+      (d.workSubject || "").toLowerCase().includes(q));
+  }
+  return docs;
+}
+
+function render() {
+  const allCount = DB.getDocuments().length;
+  const docs = getFilteredDocs();
+  document.getElementById("countLabel").textContent = `מציג ${docs.length} מתוך ${allCount} מסמכים`;
+
+  document.getElementById("adminBar").style.display = adminMode ? "flex" : "none";
+  document.getElementById("adminModeBtn").textContent = adminMode ? "🛡 במצב מנהל" : "🛡 מצב מנהל";
+  document.getElementById("selectedCount").textContent = `${selected.size} נבחרו`;
+
+  const grid = document.getElementById("grid");
+  if (!docs.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">לא נמצאו מסמכים.</div>`;
+    return;
+  }
+  grid.innerHTML = docs.map(d => {
+    const statusClass = d.isCanceled ? "canceled" : d.status;
+    return `
+    <div class="doc-card status-${statusClass}">
+      ${adminMode ? `<label class="doc-select"><input type="checkbox" data-sel="${d.id}" ${selected.has(d.id) ? "checked" : ""}></label>` : ""}
+      ${docBadge(d.docType)} ${statusBadge(d.isCanceled ? "canceled" : d.status)}
+      <div class="amount">${money(docTotal(d))}</div>
+      <div class="name">${d.clientName || ""}</div>
+      <div class="meta">מס' ${d.docNumber} · ${formatDateHe(d.issueDate)}</div>
+      ${d.workSubject ? `<div class="meta">${d.workSubject}</div>` : ""}
+      <div class="actions">
+        <a class="btn" href="view.html?id=${d.id}">👁 צפייה</a>
+      </div>
+    </div>`;
+  }).join("");
+
+  grid.querySelectorAll("[data-sel]").forEach(cb => cb.addEventListener("change", () => {
+    if (cb.checked) selected.add(cb.dataset.sel); else selected.delete(cb.dataset.sel);
+    document.getElementById("selectedCount").textContent = `${selected.size} נבחרו`;
+  }));
+}
+
+document.getElementById("tabs").addEventListener("click", (e) => {
+  if (e.target.tagName !== "BUTTON") return;
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.remove("active"));
+  e.target.classList.add("active");
+  activeTab = e.target.dataset.t;
+  render();
+});
+document.getElementById("search").addEventListener("input", (e) => { query = e.target.value; render(); });
+document.getElementById("statusFilter").addEventListener("change", (e) => { statusFilter = e.target.value; render(); });
+document.getElementById("dateFrom").addEventListener("change", (e) => { dateFrom = e.target.value; render(); });
+document.getElementById("dateTo").addEventListener("change", (e) => { dateTo = e.target.value; render(); });
+
+/* ---- Admin mode: cancelling a document or changing its status can ONLY
+   happen from here, via a password gate + explicit bulk selection — never
+   from inside the document itself. The password is a simple client-side
+   speed bump, not real access control (there's no backend to enforce it
+   against — anyone with devtools can bypass it, same as any static site). */
+document.getElementById("adminModeBtn").addEventListener("click", () => {
+  if (adminMode) { adminMode = false; selected.clear(); render(); return; }
+  const pw = prompt("הזן סיסמת מנהל:");
+  if (pw === null) return;
+  if (pw !== "Admin") { alert("סיסמה שגויה"); return; }
+  adminMode = true;
+  render();
+});
+document.getElementById("exitAdminBtn").addEventListener("click", () => { adminMode = false; selected.clear(); render(); });
+document.getElementById("selectAllBtn").addEventListener("click", () => {
+  getFilteredDocs().forEach(d => selected.add(d.id));
+  render();
+});
+document.getElementById("clearSelectionBtn").addEventListener("click", () => { selected.clear(); render(); });
+
+document.getElementById("bulkCancelBtn").addEventListener("click", () => {
+  if (!selected.size) { alert("לא נבחרו מסמכים."); return; }
+  if (!confirm(`לבטל ${selected.size} מסמכים נבחרים?`)) return;
+  selected.forEach(id => {
+    const d = DB.getDocument(id);
+    if (!d) return;
+    d.isCanceled = true; d.status = "canceled"; d.canceledAt = new Date().toISOString();
+    DB.upsertDocument(d);
+  });
+  selected.clear();
+  render();
+  toast("המסמכים הנבחרים בוטלו");
+});
+document.getElementById("bulkStatusBtn").addEventListener("click", () => {
+  if (!selected.size) { alert("לא נבחרו מסמכים."); return; }
+  const val = document.getElementById("bulkStatusSelect").value;
+  selected.forEach(id => {
+    const d = DB.getDocument(id);
+    if (!d) return;
+    d.status = val;
+    DB.upsertDocument(d);
+  });
+  selected.clear();
+  render();
+  toast("הסטטוס עודכן למסמכים הנבחרים");
+});
+document.getElementById("bulkDeleteBtn").addEventListener("click", () => {
+  if (!selected.size) { alert("לא נבחרו מסמכים."); return; }
+  if (!confirm(`פעולה זו היא בלתי הפיכה. למחוק לצמיתות ${selected.size} מסמכים נבחרים?`)) return;
+  selected.forEach(id => DB.deleteDocument(id));
+  selected.clear();
+  render();
+  toast("המסמכים הנבחרים נמחקו");
+});
+
+/* ---- ZIP export: a CSV summary of the currently-filtered documents,
+   bundled in a zip (opens cleanly in Excel/Sheets — UTF-8 BOM keeps the
+   Hebrew from garbling). Not one PDF per document — a client-only static
+   site has no reliable way to batch-render those without a heavy
+   rendering library; this covers the bookkeeping/records use case instead. */
+document.getElementById("exportZipBtn").addEventListener("click", async () => {
+  const docs = getFilteredDocs();
+  if (!docs.length) { alert("אין מסמכים לייצוא לפי הסינון הנוכחי."); return; }
+  const header = ["מספר", "סוג", "לקוח", "תאריך", "סטטוס", "סה\"כ"];
+  const rows = [header].concat(docs.map(d => [
+    d.docNumber,
+    DOC_TYPES[d.docType] ? DOC_TYPES[d.docType].label : d.docType,
+    d.clientName || "",
+    formatDateHe(d.issueDate),
+    STATUS[d.isCanceled ? "canceled" : d.status] ? STATUS[d.isCanceled ? "canceled" : d.status].label : "",
+    docTotal(d).toFixed(2),
+  ]));
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const zip = new JSZip();
+  zip.file("documents-summary.csv", "﻿" + csv);
+  const blob = await zip.generateAsync({ type: "blob" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `flowcrm-documents-${new Date().toISOString().slice(0, 10)}.zip`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+render();
+</script>
+</body>
+</html>
