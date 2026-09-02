@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>דוחות - FlowCRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1e3a5f">
+<style>
+  .report-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+  .report-summary .box { border-radius: 8px; padding: 14px; }
+  .report-summary .box .label { font-size: 12px; opacity: .85; }
+  .report-summary .box .value { font-size: 20px; font-weight: 800; margin: 4px 0 2px; }
+  .report-summary .box .sub { font-size: 11px; opacity: .75; }
+  .box-net { background: #e3edfb; color: #1e3a5f; }
+  .box-expense { background: #fbe4e1; color: #8a2e20; }
+  .box-income { background: #e1f5ea; color: #157347; }
+  .report-section-title { font-weight: 700; font-size: 14px; margin: 18px 0 4px; }
+  .concentration-box { background: var(--navy); color: #fff; border-radius: 8px; padding: 16px; margin-top: 18px; }
+  .concentration-box .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }
+  .concentration-box .row.total { font-weight: 800; font-size: 16px; border-top: 1px solid rgba(255,255,255,.3); margin-top: 6px; padding-top: 8px; }
+  @media print {
+    .report-summary .box, .concentration-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <div class="main" style="max-width:900px;">
+    <div class="btn-row no-print" style="justify-content:space-between;margin-bottom:16px;">
+      <div class="btn-row" style="margin:0;">
+        <button class="btn btn-primary" id="printBtn">🖨 הדפס / שמור PDF</button>
+      </div>
+      <div class="field" style="max-width:140px;">
+        <select id="yearSelect"></select>
+      </div>
+    </div>
+
+    <div class="print-page" id="printPage">
+      <div class="print-header">
+        <div class="biz-details" id="bizDetails"></div>
+        <div id="bizLogoWrap"></div>
+      </div>
+      <div class="print-title" id="reportTitle" style="text-align:right;margin-top:6px;">דוח שנתי</div>
+
+      <div class="report-summary">
+        <div class="box box-net">
+          <div class="label">רווח נקי</div>
+          <div class="value" id="netValue">₪0.00</div>
+        </div>
+        <div class="box box-expense">
+          <div class="label">הוצאות</div>
+          <div class="value" id="expenseValue">₪0.00</div>
+          <div class="sub" id="expenseCount">0 הוצאות</div>
+        </div>
+        <div class="box box-income">
+          <div class="label">הכנסות</div>
+          <div class="value" id="incomeValue">₪0.00</div>
+          <div class="sub" id="incomeCount">0 מסמכים</div>
+        </div>
+      </div>
+
+      <div class="report-section-title">הכנסות</div>
+      <table class="data-table">
+        <thead><tr><th>מספר</th><th>לקוח</th><th>תאריך</th><th>סה"כ</th></tr></thead>
+        <tbody id="incomeRows"></tbody>
+        <tfoot><tr><td colspan="3">סה"כ הכנסות</td><td id="incomeTotalCell"></td></tr></tfoot>
+      </table>
+
+      <div class="report-section-title">הוצאות</div>
+      <table class="data-table">
+        <thead><tr><th>תאריך</th><th>ספק</th><th>תיאור</th><th>סה"כ</th></tr></thead>
+        <tbody id="expenseRows"></tbody>
+        <tfoot><tr><td colspan="3">סה"כ הוצאות</td><td id="expenseTotalCell"></td></tr></tfoot>
+      </table>
+
+      <div class="concentration-box">
+        <div style="font-weight:700;margin-bottom:6px;">ריכוז לתקופה</div>
+        <div class="row"><span>סה"כ הכנסות</span><span id="concIncome"></span></div>
+        <div class="row"><span>סה"כ הוצאות</span><span id="concExpense"></span></div>
+        <div class="row total"><span>רווח נקי</span><span id="concNet"></span></div>
+      </div>
+
+      <div class="print-footer">
+        <div class="print-footer-brand">
+          <div class="footer-caption">הופק על ידי</div>
+          <img class="footer-logo" src="logo-full.png" alt="FlowCRM">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="drive-sync.js"></script>
+<script>
+mountShell("reports.html");
+const settings = DB.getSettings();
+
+document.getElementById("bizLogoWrap").innerHTML =
+  `<img class="biz-logo" src="${settings.companyLogo || "company-logo-default.png"}" alt="${settings.companyName}">`;
+document.getElementById("bizDetails").innerHTML = `
+  ${settings.companyTagline}<br>
+  ${settings.companyDealerType} ת.ז.: ${settings.companyTaxId}<br>
+  ${settings.companyAddress}`;
+
+function docTotal(d) {
+  const subtotal = calcSubtotal(d.items || []);
+  const tax = calcTax(subtotal, d.includeVat, settings.vatRate);
+  return calcTotal(subtotal, tax);
+}
+
+function availableYears() {
+  const docs = DB.getDocuments();
+  const exps = DB.getExpenses();
+  const years = new Set([new Date().getFullYear()]);
+  docs.forEach(d => { if (d.issueDate) years.add(+d.issueDate.slice(0, 4)); });
+  exps.forEach(e => { if (e.date) years.add(+e.date.slice(0, 4)); });
+  return [...years].sort((a, b) => b - a);
+}
+
+const yearSelect = document.getElementById("yearSelect");
+availableYears().forEach(y => {
+  const opt = document.createElement("option");
+  opt.value = y; opt.textContent = y;
+  yearSelect.appendChild(opt);
+});
+yearSelect.value = new Date().getFullYear();
+yearSelect.addEventListener("change", renderReport);
+
+function renderReport() {
+  const year = yearSelect.value;
+  document.getElementById("reportTitle").textContent = `דוח שנתי ${year}`;
+
+  const income = DB.getDocuments()
+    .filter(d => d.status === "closed" && !d.isCanceled && (d.docType === "invoice" || d.docType === "receipt"))
+    .filter(d => d.issueDate && d.issueDate.startsWith(String(year)))
+    .sort((a, b) => (a.issueDate || "").localeCompare(b.issueDate || ""));
+  const expenses = DB.getExpenses()
+    .filter(e => e.date && e.date.startsWith(String(year)))
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  const incomeTotal = income.reduce((s, d) => s + docTotal(d), 0);
+  const expenseTotal = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const net = incomeTotal - expenseTotal;
+
+  document.getElementById("netValue").textContent = money(net);
+  document.getElementById("expenseValue").textContent = money(expenseTotal);
+  document.getElementById("expenseCount").textContent = `${expenses.length} הוצאות`;
+  document.getElementById("incomeValue").textContent = money(incomeTotal);
+  document.getElementById("incomeCount").textContent = `${income.length} מסמכים`;
+
+  document.getElementById("incomeRows").innerHTML = income.length
+    ? income.map(d => `<tr><td>${d.docNumber}</td><td>${d.clientName || ""}</td><td>${formatDateHe(d.issueDate)}</td><td>${money(docTotal(d))}</td></tr>`).join("")
+    : `<tr><td colspan="4" style="text-align:center;color:#999;">אין הכנסות בתקופה זו</td></tr>`;
+  document.getElementById("incomeTotalCell").textContent = money(incomeTotal);
+
+  document.getElementById("expenseRows").innerHTML = expenses.length
+    ? expenses.map(e => `<tr><td>${formatDateHe(e.date)}</td><td>${e.supplier || ""}</td><td>${e.description || ""}</td><td>${money(e.amount || 0)}</td></tr>`).join("")
+    : `<tr><td colspan="4" style="text-align:center;color:#999;">אין הוצאות בתקופה זו</td></tr>`;
+  document.getElementById("expenseTotalCell").textContent = money(expenseTotal);
+
+  document.getElementById("concIncome").textContent = money(incomeTotal);
+  document.getElementById("concExpense").textContent = money(expenseTotal);
+  document.getElementById("concNet").textContent = money(net);
+}
+renderReport();
+
+document.getElementById("printBtn").addEventListener("click", () => window.print());
+</script>
+</body>
+</html>
