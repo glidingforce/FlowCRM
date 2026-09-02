@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>הגדרות - FlowCRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1e3a5f">
+</head>
+<body>
+<div class="app-shell">
+  <div class="main">
+    <h1 class="page-title">הגדרות</h1>
+    <p class="page-subtitle">פרטי החברה ומספור מסמכים</p>
+
+    <div class="card">
+      <div class="section-bar">פרטי החברה</div>
+      <div class="section-body">
+        <div class="logo-upload">
+          <div class="logo-preview" id="logoPreview"><span style="color:var(--text-muted);font-size:12px;">אין לוגו</span></div>
+          <div class="btn-row" style="margin:0;">
+            <button type="button" class="btn" id="uploadLogoBtn">⬆ העלאת לוגו</button>
+            <button type="button" class="btn btn-danger" id="removeLogoBtn" style="display:none;">הסרת לוגו</button>
+            <input type="file" id="logoFile" accept="image/*" style="display:none;">
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;">הלוגו יופיע בראש כל מסמך מודפס במקום שם החברה.</p>
+        <div class="field-row">
+          <div class="field"><label>שם החברה</label><input id="companyName"></div>
+          <div class="field"><label>תיאור / עיסוק</label><input id="companyTagline"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>סוג עוסק</label>
+            <select id="companyDealerType">
+              <option>עוסק פטור</option>
+              <option>עוסק מורשה</option>
+            </select>
+          </div>
+          <div class="field"><label>ת.ז / ח.פ</label><input id="companyTaxId"></div>
+        </div>
+        <div class="field-row">
+          <div class="field" style="flex-basis:100%"><label>כתובת</label><input id="companyAddress"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>טלפון</label><input id="companyPhone"></div>
+          <div class="field"><label>אימייל</label><input id="companyEmail"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-bar">מע"מ ומספור מסמכים</div>
+      <div class="section-body">
+        <div class="field-row">
+          <div class="field"><label>אחוז מע"מ</label><input id="vatRate" type="number" min="0" max="100"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>מספר חשבונית הבא</label><input id="nextInvoiceNumber" type="number"></div>
+          <div class="field"><label>מספר קבלה הבאה</label><input id="nextReceiptNumber" type="number"></div>
+          <div class="field"><label>מספר הצעת מחיר הבאה</label><input id="nextQuoteNumber" type="number"></div>
+        </div>
+        <div class="btn-row"><button class="btn btn-primary" id="saveBtn">שמירת הגדרות</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-bar">סנכרון לגוגל דרייב</div>
+      <div class="section-body">
+        <p style="font-size:13px;color:var(--text-muted);margin-top:0;">
+          מאפשר לראות ולעדכן את הנתונים גם מהטלפון וגם מהמחשב, דרך קובץ גיבוי אחד שנשמר בגוגל דרייב שלך (רק שלך — לא של FlowCRM). זו לא חובה: האפליקציה ממשיכה לעבוד מצוין גם בלי זה, עם הורדת גיבוי ידנית בלבד.
+        </p>
+        <details id="driveSetupDetails" style="margin-bottom:14px;">
+          <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--navy);">איך מגדירים את זה? (חד־פעמי, כמה דקות)</summary>
+          <ol style="font-size:13px;color:var(--text-muted);line-height:1.8;padding-inline-start:20px;margin:10px 0 0;">
+            <li>כנסו ל־<a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a> עם חשבון הגוגל שלכם ולחצו "צור פרויקט" (New Project) — כל שם, למשל "FlowCRM".</li>
+            <li>בתפריט: APIs &amp; Services &gt; OAuth consent screen. בחרו External, מלאו שם אפליקציה ואימייל, שמרו (אין צורך לשלוח לאישור גוגל — מספיק שהחשבון שלכם רשום כ"בודק/Test user" באותו מסך).</li>
+            <li>APIs &amp; Services &gt; Library — חפשו "Google Drive API" ולחצו Enable.</li>
+            <li>APIs &amp; Services &gt; Credentials &gt; Create Credentials &gt; OAuth client ID. סוג: Web application.</li>
+            <li>תחת "Authorized JavaScript origins" הוסיפו את הכתובת המדויקת שבה האתר רץ (למשל <code>https://glidingforce.github.io</code>) — בלי סלאש בסוף.</li>
+            <li>לחצו Create — תקבלו "Client ID" שנראה כמו <code>123...apps.googleusercontent.com</code>. הוא לא סודי; הדביקו אותו כאן למטה.</li>
+          </ol>
+        </details>
+        <div class="field-row">
+          <div class="field" style="flex-basis:100%;">
+            <label>Google Client ID</label>
+            <input id="googleClientId" placeholder="xxxxxxxx.apps.googleusercontent.com">
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="saveClientIdBtn">שמירת Client ID</button>
+          <button class="btn btn-primary" id="driveConnectBtn">🔗 התחברות עם Google</button>
+          <button class="btn btn-danger" id="driveDisconnectBtn" style="display:none;">ניתוק</button>
+          <button class="btn" id="driveSyncNowBtn" style="display:none;">🔄 סנכרן עכשיו</button>
+        </div>
+        <p id="driveStatus" style="font-size:13px;color:var(--text-muted);margin:10px 0 0;"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-bar">גיבוי ושחזור ידני</div>
+      <div class="section-body">
+        <p style="font-size:13px;color:var(--text-muted);margin-top:0;">
+          כל הנתונים נשמרים בדפדפן הזה בלבד. גם אם מפעילים סנכרון לדרייב למעלה, מומלץ להוריד גיבוי מדי פעם כרשת ביטחון נוספת.
+        </p>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="exportBtn">⬇ הורדת גיבוי (JSON)</button>
+          <button class="btn" id="importBtn">⬆ שחזור מגיבוי</button>
+          <input type="file" id="importFile" accept="application/json" style="display:none;">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="drive-sync.js"></script>
+<script>
+mountShell("settings.html");
+const s = DB.getSettings();
+
+function renderLogoPreview() {
+  const cur = DB.getSettings();
+  const preview = document.getElementById("logoPreview");
+  const removeBtn = document.getElementById("removeLogoBtn");
+  // Falls back to the default אחזקה פלוס logo baked into the app (not
+  // stored in localStorage) until a custom logo is uploaded here.
+  preview.innerHTML = `<img src="${cur.companyLogo || "company-logo-default.png"}" alt="לוגו">`;
+  removeBtn.style.display = cur.companyLogo ? "" : "none";
+}
+renderLogoPreview();
+
+document.getElementById("uploadLogoBtn").addEventListener("click", () => document.getElementById("logoFile").click());
+document.getElementById("logoFile").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const { dataUrl } = await fileToStoredDataURL(file, 500, 0.9);
+    const cur = DB.getSettings();
+    cur.companyLogo = dataUrl;
+    DB.saveSettings(cur);
+    renderLogoPreview();
+    toast("הלוגו הועלה");
+  } catch (err) {
+    alert("שגיאה בהעלאת הלוגו");
+  }
+});
+document.getElementById("removeLogoBtn").addEventListener("click", () => {
+  const cur = DB.getSettings();
+  cur.companyLogo = null;
+  DB.saveSettings(cur);
+  renderLogoPreview();
+});
+
+document.getElementById("companyName").value = s.companyName;
+document.getElementById("companyTagline").value = s.companyTagline;
+document.getElementById("companyDealerType").value = s.companyDealerType;
+document.getElementById("companyTaxId").value = s.companyTaxId;
+document.getElementById("companyAddress").value = s.companyAddress;
+document.getElementById("companyPhone").value = s.companyPhone;
+document.getElementById("companyEmail").value = s.companyEmail;
+document.getElementById("vatRate").value = s.vatRate;
+document.getElementById("nextInvoiceNumber").value = s.nextInvoiceNumber;
+document.getElementById("nextReceiptNumber").value = s.nextReceiptNumber;
+document.getElementById("nextQuoteNumber").value = s.nextQuoteNumber;
+
+document.getElementById("saveBtn").addEventListener("click", () => {
+  const updated = {
+    ...DB.getSettings(),
+    companyName: document.getElementById("companyName").value,
+    companyTagline: document.getElementById("companyTagline").value,
+    companyDealerType: document.getElementById("companyDealerType").value,
+    companyTaxId: document.getElementById("companyTaxId").value,
+    companyAddress: document.getElementById("companyAddress").value,
+    companyPhone: document.getElementById("companyPhone").value,
+    companyEmail: document.getElementById("companyEmail").value,
+    vatRate: parseFloat(document.getElementById("vatRate").value) || 0,
+    nextInvoiceNumber: parseInt(document.getElementById("nextInvoiceNumber").value) || 1,
+    nextReceiptNumber: parseInt(document.getElementById("nextReceiptNumber").value) || 1,
+    nextQuoteNumber: parseInt(document.getElementById("nextQuoteNumber").value) || 1,
+  };
+  DB.saveSettings(updated);
+  toast("ההגדרות נשמרו");
+});
+
+document.getElementById("exportBtn").addEventListener("click", () => {
+  const backup = {
+    exportedAt: new Date().toISOString(),
+    settings: DB.getSettings(),
+    clients: DB.getClients(),
+    documents: DB.getDocuments(),
+    expenses: DB.getExpenses(),
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `flowcrm-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById("importBtn").addEventListener("click", () => document.getElementById("importFile").click());
+document.getElementById("importFile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!confirm("שחזור גיבוי יחליף את כל הנתונים הקיימים בדפדפן זה. להמשיך?")) return;
+      if (data.settings) DB.saveSettings(data.settings);
+      if (data.clients) DB.saveClients(data.clients);
+      if (data.documents) DB.saveDocuments(data.documents);
+      if (data.expenses) DB.saveExpenses(data.expenses);
+      toast("הגיבוי שוחזר בהצלחה");
+      setTimeout(() => location.href = "index.html", 800);
+    } catch (err) {
+      alert("קובץ הגיבוי אינו תקין");
+    }
+  };
+  reader.readAsText(file);
+});
+
+/* ---------------- Google Drive sync UI ---------------- */
+
+document.getElementById("googleClientId").value = DriveSync.getClientId();
+
+document.getElementById("saveClientIdBtn").addEventListener("click", () => {
+  DriveSync.setClientId(document.getElementById("googleClientId").value);
+  toast("ה-Client ID נשמר");
+});
+
+document.getElementById("driveConnectBtn").addEventListener("click", async () => {
+  const id = document.getElementById("googleClientId").value.trim();
+  if (!id) { alert("יש להדביק ולשמור Client ID קודם (ראו הוראות למעלה)"); return; }
+  DriveSync.setClientId(id);
+  const btn = document.getElementById("driveConnectBtn");
+  btn.disabled = true;
+  btn.textContent = "מתחבר...";
+  try {
+    await DriveSync.connect();
+    toast("התחברת לגוגל דרייב, הסנכרון פעיל");
+  } catch (e) {
+    alert("ההתחברות נכשלה: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔗 התחברות עם Google";
+    renderDriveStatus();
+  }
+});
+
+document.getElementById("driveDisconnectBtn").addEventListener("click", () => {
+  if (!confirm("ניתוק יעצור את הסנכרון האוטומטי בדפדפן זה. קובץ הגיבוי יישאר בדרייב שלך. להמשיך?")) return;
+  DriveSync.disconnect();
+  renderDriveStatus();
+});
+
+document.getElementById("driveSyncNowBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("driveSyncNowBtn");
+  btn.disabled = true;
+  btn.textContent = "מסנכרן...";
+  try {
+    // interactive:true because this call is directly inside a click — a
+    // Google popup is allowed to open here if a fresh token is needed.
+    await DriveSync.syncNow({ interactive: true });
+    toast("הסנכרון הושלם");
+  } catch (e) {
+    alert("הסנכרון נכשל: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔄 סנכרן עכשיו";
+    renderDriveStatus();
+  }
+});
+
+function renderDriveStatus() {
+  const st = DriveSync.getStatus();
+  document.getElementById("driveConnectBtn").style.display = st.connected ? "none" : "";
+  document.getElementById("driveDisconnectBtn").style.display = st.connected ? "" : "none";
+  document.getElementById("driveSyncNowBtn").style.display = st.connected ? "" : "none";
+  const statusEl = document.getElementById("driveStatus");
+  if (!st.connected) {
+    statusEl.style.color = "";
+    statusEl.textContent = "לא מחובר. הנתונים נשמרים רק בדפדפן זה.";
+  } else if (st.needsReconnect) {
+    // Routine, not an error: the ~1h token expired while the app sat idle.
+    // No popup was attempted automatically on purpose — click to resume.
+    statusEl.style.color = "";
+    statusEl.textContent = "החיבור פג (זה קורה אחרי כשעה של חוסר פעילות) — לחצו \"סנכרן עכשיו\" כדי להמשיך."
+      + (st.lastSync ? " סונכרן לאחרונה ב-" + new Date(st.lastSync).toLocaleString("he-IL") + "." : "");
+  } else if (st.lastError) {
+    statusEl.textContent = "מחובר, אך הסנכרון האחרון נכשל: " + st.lastError;
+    statusEl.style.color = "var(--danger, #ef4444)";
+  } else {
+    statusEl.style.color = "";
+    statusEl.textContent = st.lastSync
+      ? "מחובר. סונכרן לאחרונה ב-" + new Date(st.lastSync).toLocaleString("he-IL")
+      : "מחובר. מסנכרן...";
+  }
+}
+DriveSync.onStatusChange(renderDriveStatus);
+renderDriveStatus();
+</script>
+</body>
+</html>
