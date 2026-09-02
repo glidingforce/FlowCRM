@@ -82,7 +82,7 @@ a { color: inherit; text-decoration: none; }
   flex-shrink: 0;
   display: block;
 }
-.sidebar .brand-icon svg { width: 100%; height: 100%; display: block; }
+.sidebar .brand-icon svg, .sidebar .brand-icon img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .sidebar .brand {
   font-size: 19px;
   font-weight: 700;
@@ -473,27 +473,51 @@ table.data-table tfoot td { font-weight: 700; border-top: 2px solid var(--border
      otherwise — this is what was erasing the light-blue table header (and
      would silently erase any other colored background) in the saved PDF. */
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+  /* html/body carry the app's on-screen background (--bg, a light gray-blue
+     tint, added for the dashboard redesign). Hiding every descendant with
+     `body * { visibility: hidden }` below does NOT stop body's own
+     background from painting — visibility:hidden only blanks an element's
+     own box, it doesn't touch an ancestor that isn't itself hidden. Without
+     this override, that tint painted behind the white .print-page, which is
+     exactly the "gray background behind a white document" you saw. */
+  html, body { background: #fff !important; }
   .sidebar, .hamburger { display: none !important; }
   body * { visibility: hidden; }
   .print-page, .print-page * { visibility: visible; }
+  /* Footer-pinning, take 3. Earlier attempts: a forced min-height alone
+     (footer just sat wherever content ended, nowhere near the bottom —
+     today's report); flex + margin-top:auto on a min-height box (how much
+     room that leaves for a flex auto-margin to fill is resolved
+     inconsistently across print engines, and it once overflowed to a
+     near-blank second page on iPhone); an EXACT height matching the full
+     277mm printable area (297mm A4 minus the @page's 10mm top+bottom
+     margin) with the footer absolutely positioned at bottom:0 — this
+     seemed like the "correct" fixed-height-box answer, but broke worse
+     than either: tested in this sandbox's headless Chrome, it pushed the
+     footer onto a genuine, mostly-blank SECOND PAGE. An exact 277mm box is
+     apparently one mm-to-px rounding hair too tall for Chrome/Skia's own
+     pagination math, so it treats the box as taller than one page.
+     This version keeps plain absolute positioning for the footer (no flex,
+     no auto-margins — the one part of the previous attempts that IS
+     well-supported everywhere), and picks the min-height by MEASURING
+     rather than assuming: a probe script rendered this exact page at every
+     min-height from 200mm to 277mm and checked the resulting PDF's page
+     count in this sandbox's own print engine. 200-260mm held at one page;
+     262mm and up silently overflowed to a second, near-blank page — so the
+     real one-page ceiling here is ~260mm, not the theoretical 277mm
+     (A4 minus the @page's 10mm+10mm margin). This uses 250mm, 10mm under
+     that measured ceiling, as a safety margin for other print engines
+     (notably real iOS Safari, which I still can't test from here and which
+     is what broke on a *smaller* 262mm box in an earlier round). If the
+     footer ever lands on a blank second page again on some device, shrink
+     this number further — do not go back to flex/margin-auto, and don't
+     assume the 277mm "should" work just because the arithmetic says so. */
   .print-page {
     position: absolute; top: 0; left: 0; border: none; box-shadow: none; margin: 0; padding: 0;
     width: 100%; max-width: 100%; font-size: 12px;
-    display: flex; flex-direction: column; min-height: 200mm;
+    min-height: 250mm;
   }
-  /* A previous version forced .print-page to ~262mm (a ~15mm safety margin
-     under A4's ~277mm printable content height) to pin the footer flush
-     against the true page bottom. That margin turned out too tight on
-     iPhone/Safari — it computed the page differently and the footer
-     overflowed to a near-blank second page. This version uses a much more
-     conservative 200mm — about 77mm of slack — so the footer sits
-     noticeably lower on short/medium documents without forcing full-page
-     height. It won't sit flush against the literal bottom edge like
-     before, but should be safe across engines. I can't test real iOS
-     Safari print from here, so if this STILL pushes to a second page on
-     an iPhone, that's a real report to send back — the safe fallback
-     (a small fixed gap, no page-height forcing at all) is one line away. */
-  .print-footer { margin-top: auto; }
+  .print-footer { position: absolute; left: 0; right: 0; bottom: 0; margin-top: 0; }
   @page { size: A4; margin: 10mm; }
   .no-print { display: none !important; }
   .print-table, .print-payment table { page-break-inside: auto; }

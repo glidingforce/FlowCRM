@@ -309,14 +309,6 @@ function toast(msg) {
   el._t = setTimeout(() => el.classList.remove("show"), 2200);
 }
 
-const FLOWCRM_ICON_SVG = `
-<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="50" cy="50" r="50" fill="#1e3a5f"/>
-  <path d="M32 22 h24 l12 12 v42 a4 4 0 0 1-4 4 H32 a4 4 0 0 1-4-4 V26 a4 4 0 0 1 4-4 z" fill="#ffffff"/>
-  <path d="M56 22 v10 a2 2 0 0 0 2 2 h10 z" fill="#c7d4e3"/>
-  <path d="M33 55 l11 11 22-24" fill="none" stroke="#22c55e" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>`.trim();
-
 function renderSidebar(active) {
   const items = [
     ["index.html", "לוח בקרה", "layoutDashboard"],
@@ -333,7 +325,7 @@ function renderSidebar(active) {
   <button class="hamburger" id="hamburgerBtn">☰</button>
   <aside class="sidebar" id="sidebar">
     <div class="brand-row">
-      <span class="brand-icon">${FLOWCRM_ICON_SVG}</span>
+      <span class="brand-icon"><img src="logo-icon.png" alt="FlowCRM"></span>
       <div>
         <div class="brand">FlowCRM</div>
         <div class="brand-sub">מערכת ניהול מסמכים עצמאית</div>
