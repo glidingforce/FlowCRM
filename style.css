@@ -466,7 +466,11 @@ table.data-table tfoot td { font-weight: 700; border-top: 2px solid var(--border
 
 /* ---------- Print: logo + digital-signature stamp ---------- */
 .print-header .biz-logo { max-height: 70px; max-width: 260px; object-fit: contain; }
-.print-stamp { width: 72px; height: auto; margin-top: 6px; display: block; }
+/* inline-block (not block): it's nested inside the text-align:left date
+   column now, and text-align only positions inline/inline-block children —
+   a block child would ignore that and fall back to the RTL parent's own
+   default (flush right), landing on the wrong side of the column. */
+.print-stamp { width: 72px; height: auto; margin-top: 6px; display: inline-block; }
 
 @media print {
   /* Chrome drops background colors/images on print by default unless told
@@ -484,40 +488,31 @@ table.data-table tfoot td { font-weight: 700; border-top: 2px solid var(--border
   .sidebar, .hamburger { display: none !important; }
   body * { visibility: hidden; }
   .print-page, .print-page * { visibility: visible; }
-  /* Footer-pinning, take 3. Earlier attempts: a forced min-height alone
-     (footer just sat wherever content ended, nowhere near the bottom —
-     today's report); flex + margin-top:auto on a min-height box (how much
-     room that leaves for a flex auto-margin to fill is resolved
-     inconsistently across print engines, and it once overflowed to a
-     near-blank second page on iPhone); an EXACT height matching the full
-     277mm printable area (297mm A4 minus the @page's 10mm top+bottom
-     margin) with the footer absolutely positioned at bottom:0 — this
-     seemed like the "correct" fixed-height-box answer, but broke worse
-     than either: tested in this sandbox's headless Chrome, it pushed the
-     footer onto a genuine, mostly-blank SECOND PAGE. An exact 277mm box is
-     apparently one mm-to-px rounding hair too tall for Chrome/Skia's own
-     pagination math, so it treats the box as taller than one page.
-     This version keeps plain absolute positioning for the footer (no flex,
-     no auto-margins — the one part of the previous attempts that IS
-     well-supported everywhere), and picks the min-height by MEASURING
-     rather than assuming: a probe script rendered this exact page at every
-     min-height from 200mm to 277mm and checked the resulting PDF's page
-     count in this sandbox's own print engine. 200-260mm held at one page;
-     262mm and up silently overflowed to a second, near-blank page — so the
-     real one-page ceiling here is ~260mm, not the theoretical 277mm
-     (A4 minus the @page's 10mm+10mm margin). This uses 250mm, 10mm under
-     that measured ceiling, as a safety margin for other print engines
-     (notably real iOS Safari, which I still can't test from here and which
-     is what broke on a *smaller* 262mm box in an earlier round). If the
-     footer ever lands on a blank second page again on some device, shrink
-     this number further — do not go back to flex/margin-auto, and don't
-     assume the 277mm "should" work just because the arithmetic says so. */
+  /* Footer position — after 3 rounds of trying to pin this to the literal
+     bottom of the page (forced min-height, flex+margin-top:auto, then a
+     fixed-height box with the footer at position:absolute;bottom:0), a
+     2-page document exposed why every one of those was wrong in the same
+     way: whichever trick I used, it pins the footer to the bottom of
+     .print-page's own box — but on a document long enough to spill onto a
+     second physical page, that ONE box now spans BOTH pages, so "bottom of
+     the box" lands wherever the content happens to end (right after the
+     totals table, mid-page-2), not at page 2's actual bottom edge. That's
+     not a bug specific to this last attempt — flex+margin-auto had the
+     exact same flaw, it just never got tested against a long document
+     before now. Pure CSS in Chrome's print engine has no reliable way to
+     say "repeat this footer at the bottom of every page" (that needs CSS
+     Paged Media's running elements, which Chrome doesn't implement) short
+     of a JS pagination system that measures and splits content — real
+     scope, not a one-line fix. So: back to a plain, unforced footer that
+     flows right after the content with a fixed gap. On a short document it
+     won't sit flush against the physical page edge anymore — it'll be a
+     few cm below the totals instead — but it will be CORRECT on every
+     document length, on every engine, with nothing to measure or guess. */
   .print-page {
-    position: absolute; top: 0; left: 0; border: none; box-shadow: none; margin: 0; padding: 0;
+    position: static; border: none; box-shadow: none; margin: 0; padding: 0;
     width: 100%; max-width: 100%; font-size: 12px;
-    min-height: 250mm;
   }
-  .print-footer { position: absolute; left: 0; right: 0; bottom: 0; margin-top: 0; }
+  .print-footer { margin-top: 20mm; }
   @page { size: A4; margin: 10mm; }
   .no-print { display: none !important; }
   .print-table, .print-payment table { page-break-inside: auto; }

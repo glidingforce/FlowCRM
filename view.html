@@ -38,15 +38,24 @@
 
       <div class="print-meta">
         <div class="to">לכבוד: <b id="metaClient"></b></div>
+        <!-- Date/note/stamp share ONE column (not three separate flex
+             siblings) so they always sit together as a unit, stamp directly
+             below the date text. A previous version made the stamp a 3rd
+             flex sibling so justify-content:space-between would push it to
+             the page's true left edge — but with only 3 items, space-between
+             splits the leftover width around the MIDDLE item too, so the
+             date text's position (and the gap between it and the stamp)
+             shifted depending on how long the client name was — on a short
+             name this drifted enough to look like the whole block "moved".
+             Back to 2 flex items (לכבוד + this column) is what makes the
+             layout deterministic again: this column always sits flush at
+             the true left edge regardless of the client-name length, and
+             the stamp stays glued to the date/note text inside it. -->
         <div style="text-align:left;">
           <div>תאריך <span id="metaDate"></span></div>
           <div style="color:#666;">מסמך ממוחשב, חתום דיגיטלית</div>
+          <img class="print-stamp" src="stamp.png" alt="מסמך מאומת - חתום דיגיטלית">
         </div>
-        <!-- A sibling of the date column, not nested inside it, so
-             justify-content:space-between on .print-meta pushes it all
-             the way to the page's true left edge instead of just left
-             of the date text. -->
-        <img class="print-stamp" src="stamp.png" alt="מסמך מאומת - חתום דיגיטלית">
       </div>
 
       <div class="print-title" id="docTitle"></div>
