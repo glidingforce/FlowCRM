@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>לוח בקרה - FlowCRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -18,15 +21,15 @@
 
     <div class="stat-grid">
       <div class="stat-card">
-        <div class="icon" style="background:#f3e8ff;">👥</div>
+        <div class="icon" style="background:#f3e8ff;color:#7c3aed;" id="iconClients"></div>
         <div><div class="num" id="statClients">0</div><div class="label">לקוחות</div></div>
       </div>
       <div class="stat-card">
-        <div class="icon" style="background:#fef9c3;">🕐</div>
+        <div class="icon" style="background:#ffedd5;color:#ea580c;" id="iconOpen"></div>
         <div><div class="num" id="statOpen">0</div><div class="label">מסמכים פתוחים</div></div>
       </div>
       <div class="stat-card stat-card-net">
-        <div class="icon" style="background:#dbeafe;">💰</div>
+        <div class="icon" style="background:#dcfce7;color:#16a34a;" id="iconNet"></div>
         <div>
           <div class="num" id="statYearNet">₪0</div>
           <div class="label">נטו השנה</div>
@@ -37,21 +40,21 @@
         </div>
       </div>
       <div class="stat-card">
-        <div class="icon" style="background:#dcfce7;">💲</div>
+        <div class="icon" style="background:#dbeafe;color:#2563eb;" id="iconMonth"></div>
         <div><div class="num" id="statMonth">₪0</div><div class="label">הכנסות החודש</div></div>
       </div>
     </div>
     <div class="stat-grid stat-grid-3">
       <div class="stat-card">
-        <div class="icon" style="background:#dcfce7;">🧾</div>
+        <div class="icon" style="background:#dcfce7;color:#15803d;" id="iconReceipts"></div>
         <div><div class="num" id="statReceipts">0</div><div class="label">קבלות</div></div>
       </div>
       <div class="stat-card">
-        <div class="icon" style="background:#dbeafe;">📄</div>
+        <div class="icon" style="background:#dbeafe;color:#1d4ed8;" id="iconInvoices"></div>
         <div><div class="num" id="statInvoices">0</div><div class="label">חשבוניות עסקה</div></div>
       </div>
       <div class="stat-card">
-        <div class="icon" style="background:#f3e8ff;">📝</div>
+        <div class="icon" style="background:#f3e8ff;color:#7e22ce;" id="iconQuotes"></div>
         <div><div class="num" id="statQuotes">0</div><div class="label">הצעות מחיר</div></div>
       </div>
     </div>
@@ -99,6 +102,14 @@ document.getElementById("statQuotes").textContent = docs.filter(d => d.docType =
 document.getElementById("statInvoices").textContent = docs.filter(d => d.docType === "invoice").length;
 document.getElementById("statReceipts").textContent = docs.filter(d => d.docType === "receipt").length;
 
+document.getElementById("iconClients").innerHTML = icon("users");
+document.getElementById("iconOpen").innerHTML = icon("clock");
+document.getElementById("iconNet").innerHTML = icon("wallet");
+document.getElementById("iconMonth").innerHTML = icon("trendingUp");
+document.getElementById("iconReceipts").innerHTML = icon("receipt");
+document.getElementById("iconInvoices").innerHTML = icon("fileText");
+document.getElementById("iconQuotes").innerHTML = icon("fileText");
+
 const recent = [...docs].sort((a, b) => (b.issueDate || "").localeCompare(a.issueDate || "")).slice(0, 6);
 const grid = document.getElementById("recentDocs");
 if (!recent.length) {
@@ -107,7 +118,7 @@ if (!recent.length) {
   grid.innerHTML = recent.map(d => `
     <div class="doc-card">
       ${docCardInner(d, docTotal(d))}
-      <div class="actions"><a class="btn" href="view.html?id=${d.id}">👁 צפייה</a></div>
+      <div class="actions"><a class="btn" href="view.html?id=${d.id}">${icon("eye")} צפייה</a></div>
     </div>`).join("");
 }
 </script>

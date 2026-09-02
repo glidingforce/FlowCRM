@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>מסמכים - FlowCRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -120,7 +123,7 @@ function render() {
       ${docCardInner(d, docTotal(d))}
       ${d.workSubject ? `<div class="meta">${d.workSubject}</div>` : ""}
       <div class="actions">
-        <a class="btn" href="view.html?id=${d.id}">👁 צפייה</a>
+        <a class="btn" href="view.html?id=${d.id}">${icon("eye")} צפייה</a>
       </div>
     </div>`;
   }).join("");
