@@ -88,10 +88,9 @@
         <div class="row total"><span>רווח נקי</span><span id="concNet"></span></div>
       </div>
 
-      <!-- In normal browser printing this sits in normal document flow
-           after the content (see style.css). The ⬇ הדפס/שמור PDF button
-           uses pdf-export.js instead, which also reuses this element as
-           the per-page footer template drawn on every page. -->
+      <!-- Footer TEMPLATE — both buttons reflow into #paginatedOutput
+           before printing/exporting (see pdf-export.js), cloning this
+           onto the bottom of every generated page. -->
       <div class="print-footer" id="printFooter">
         <div class="print-footer-brand">
           <div class="footer-caption">הופק על ידי</div>
@@ -99,6 +98,8 @@
         </div>
       </div>
     </div>
+
+    <div id="paginatedOutput"></div>
   </div>
 </div>
 
@@ -180,7 +181,16 @@ function renderReport() {
 }
 renderReport();
 
-document.getElementById("printBtn").addEventListener("click", () => window.print());
+document.getElementById("printBtn").addEventListener("click", async () => {
+  try {
+    await PdfExport.printDocument(
+      document.getElementById("printPage"),
+      document.getElementById("printFooter")
+    );
+  } catch (e) {
+    window.print();
+  }
+});
 
 document.getElementById("savePdfBtn").addEventListener("click", async () => {
   const btn = document.getElementById("savePdfBtn");
@@ -191,7 +201,10 @@ document.getElementById("savePdfBtn").addEventListener("click", async () => {
     await PdfExport.exportAndSave({
       pageEl: document.getElementById("printPage"),
       footerEl: document.getElementById("printFooter"),
-      filename: `${document.getElementById("reportTitle").textContent} - ${settings.companyName}.pdf`,
+      // ASCII-only filename — see the comment on the same pattern in
+      // view.html: Hebrew/mixed-script download filenames were not
+      // reliably reported back by Chromium in testing.
+      filename: `report-${yearSelect.value}.pdf`,
     });
   } catch (e) {
     alert("שגיאה ביצירת ה-PDF: " + (e && e.message ? e.message : e));

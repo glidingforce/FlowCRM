@@ -93,13 +93,14 @@
         <div id="noteText"></div>
       </div>
 
-      <!-- In normal browser printing (the 🖨 הדפסה button, or an OS-level
-           "print to PDF") this sits in normal document flow after the
-           content — see style.css for why a fixed/repeating-per-page
-           footer was tried and reverted after it broke on Safari/iOS.
-           The ⬇ שמור כ-PDF button does NOT use browser printing at all —
-           see pdf-export.js — so this same element also serves as the
-           per-page footer template that JS renderer draws on every page. -->
+      <!-- This is the footer TEMPLATE. Both the 🖨 הדפסה and ⬇ שמור כ-PDF
+           buttons reflow the document into #paginatedOutput below before
+           doing anything else (see pdf-export.js) — that reflow clones
+           this element onto the bottom of every generated page, pinned
+           there with plain flexbox. This original copy is only ever
+           seen directly if JS fails and printBtn falls back to a bare
+           window.print() (see the print-page fallback rules in
+           style.css). -->
       <div class="print-footer" id="printFooter">
         <div class="print-footer-brand">
           <div class="footer-caption">הופק על ידי</div>
@@ -107,6 +108,12 @@
         </div>
       </div>
     </div>
+
+    <!-- Built fresh by Paginate.build() every time the document is
+         printed or exported — a sequence of .printed-page boxes, each a
+         real page with its own forced break and its own footer. Empty
+         and hidden the rest of the time. -->
+    <div id="paginatedOutput"></div>
   </div>
 </div>
 
@@ -197,7 +204,18 @@ if (doc.isCanceled) {
   document.getElementById("watermark").style.display = "block";
 }
 
-document.getElementById("printBtn").addEventListener("click", () => window.print());
+document.getElementById("printBtn").addEventListener("click", async () => {
+  try {
+    await PdfExport.printDocument(
+      document.getElementById("printPage"),
+      document.getElementById("printFooter")
+    );
+  } catch (e) {
+    // Fall back to a plain print if the pagination JS itself failed for
+    // some reason — worse footer placement, but still a working print.
+    window.print();
+  }
+});
 
 document.getElementById("savePdfBtn").addEventListener("click", async () => {
   const btn = document.getElementById("savePdfBtn");
@@ -208,7 +226,15 @@ document.getElementById("savePdfBtn").addEventListener("click", async () => {
     await PdfExport.exportAndSave({
       pageEl: document.getElementById("printPage"),
       footerEl: document.getElementById("printFooter"),
-      filename: `${document.title}.pdf`,
+      // ASCII-only filename on purpose: Chromium's headless download
+      // interception (confirmed via Playwright, even for a plain
+      // server Content-Disposition header) reports Hebrew/mixed-script
+      // download filenames as the generic "download" instead of the
+      // real name. Couldn't confirm whether that also happens in a
+      // real interactive browser, so this sidesteps the risk entirely
+      // — the PDF's on-page content/title stays Hebrew, only the
+      // saved file's name is Latin/numeric.
+      filename: `${doc.docType}-${doc.docNumber}.pdf`,
     });
   } catch (e) {
     alert("שגיאה ביצירת ה-PDF: " + (e && e.message ? e.message : e));

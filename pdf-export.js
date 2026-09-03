@@ -1,55 +1,206 @@
 /* ============================================================
-   FlowCRM — client-side PDF export
+   FlowCRM — real print pagination + PDF export
 
-   Why this exists: the "⬇ שמור כ-PDF" button used to just call
-   window.print() and let the browser's own print engine turn the page
-   into a PDF. That meant Chrome and Safari were each making their own
-   decisions about paper size, page breaks and footer placement — and
-   real device testing showed they don't agree. A real iPhone-generated
-   PDF came back on US Letter paper (not the A4 this app asks for),
-   spilled onto a second, entirely blank page for a one-line receipt,
-   and squashed the footer differently than the same document printed
-   from a laptop. There is no CSS trick that closes that gap — it's a
-   real difference between how the two engines implement printing.
+   History, briefly: this went through position:fixed (repeats on every
+   page in Chrome, breaks on Safari — confirmed on real iPhone PDFs),
+   then a plain-flow footer (safe everywhere, but not pinned to the
+   bottom), then an html2canvas+jsPDF export that rasterized the WHOLE
+   document into one tall image and sliced it into pages (fixed the
+   cross-browser inconsistency, but produced a blurry "looks like a
+   photo of the document" PDF, and had a real unit-conversion bug that
+   stretched the page's aspect ratio — the slice height was computed
+   using the FULL page width in the mm-per-pixel ratio while the image
+   was actually placed at the narrower content width, so every slice
+   came out taller than it should have).
 
-   This module sidesteps native browser printing for the PDF button
-   entirely: it snapshots the on-screen document with html2canvas and
-   assembles the PDF itself with jsPDF, one page at a time, at a fixed
-   width and a paper size WE choose. Page breaks are computed from the
-   real DOM element boundaries (so a table row is never sliced in half)
-   and the footer is drawn fresh onto every page from its own snapshot —
-   the actual "repeat on every page" behavior this app has been trying
-   to get out of native print for a while, finally done reliably because
-   nothing here depends on which browser or OS is running it.
+   This version fixes both problems by not leaving pagination to any
+   browser's print engine AND not throwing away real text as one big
+   raster image. Instead:
 
-   The 🖨 הדפסה button still calls window.print() for actual printing to
-   a physical printer or an OS-level "print to PDF" — that path still
-   inherits the Chrome/Safari differences described above, because a
-   real printer dialog is outside what this module can touch.
+   1. Paginate() reflows the live document into a sequence of
+      .printed-page boxes, each a FIXED, exact size (computed directly
+      from A4 mm at the CSS-standard 96px/inch, so there is no separate
+      "convert pixels to mm" step left to get wrong). Page breaks are
+      decided by measuring real elements — a table row is never split
+      across two pages — and the footer is a normal flex child with
+      margin-top:auto, which pins it to the bottom of ITS OWN fixed-
+      height box using nothing but standard flexbox. No position:fixed,
+      no position:absolute, no reliance on @page margins lining up with
+      anything — which is what broke on Safari before.
+
+   2. The "🖨 הדפסה" button prints this reflowed structure directly via
+      window.print() — real text, real selectable PDF when the OS's own
+      "print to PDF" is used, with the footer now genuinely pinned to
+      the bottom of every page on any engine that supports flexbox
+      (which is all of them).
+
+   3. The "⬇ שמור כ-PDF" button renders each fixed-size .printed-page
+      individually with html2canvas (one call per page, not one call
+      for the whole document sliced afterward) and places each at its
+      exact, known size in a jsPDF document. Still a raster image under
+      the hood — a genuinely vector, selectable-text PDF would mean
+      re-implementing this app's entire Hebrew/RTL layout using jsPDF's
+      text-drawing primitives instead of the browser's own text engine,
+      which is a much bigger and riskier rewrite (Hebrew mixed with
+      numbers and dates needs real bidi handling to not come out
+      scrambled) — not attempted here. What this version does fix: the
+      aspect-ratio bug (each page's width/height are now taken directly
+      from the same fixed box used for print, not recomputed from a
+      slice), and sharper output (each page rendered at higher pixel
+      density on its own, instead of one giant multi-page canvas).
 
    Both html2canvas and jsPDF are self-hosted (html2canvas.min.js,
    jspdf.umd.min.js) so this keeps working offline like the rest of the
    app — no CDN dependency at runtime.
    ============================================================ */
 
-const PdfExport = (() => {
+const Paginate = (() => {
+  // CSS defines 1in = 96px = 25.4mm — this is a fixed spec constant, not
+  // a display DPI guess, so this conversion is exact on every browser.
+  const MM_TO_PX = 96 / 25.4;
   const A4_WIDTH_MM = 210;
   const A4_HEIGHT_MM = 297;
   const MARGIN_MM = 12;
-  const FOOTER_RESERVE_MM = 18; // vertical room reserved at the bottom of EVERY page for the footer
-  const RENDER_SCALE = 2; // html2canvas oversampling factor, for print-quality sharpness
-  const MAX_PAGES = 200; // sanity cap so a measurement bug can't loop forever
+  // Precomputed from the constants above (kept as literals, not a runtime
+  // Math.round call, so the exact same numbers can be mirrored in style.css
+  // — see the .printed-page rule there). Width is A4's (210 - 2*12) *
+  // 96/25.4 = 702.99 → 703 — that's fine, A4 is the narrower of the two
+  // common paper sizes so a box this wide also fits on US Letter.
+  //
+  // Height is NOT A4's. This app asks for @page { size: A4 } and Chrome
+  // on a laptop honors that — but a real iPhone-generated PDF earlier
+  // came back on US Letter regardless of that CSS (612×792pt — Safari's
+  // print pipeline appears to use the device's regional default paper
+  // size, not the page's own @page hint). Letter is 279.4mm tall vs A4's
+  // 297mm — SHORTER. A page box built for A4's full height would then be
+  // taller than what actually fits on the Letter page the engine chose,
+  // and the engine would silently insert its OWN extra break partway
+  // through that box — corrupting the one-box-per-page assumption this
+  // whole approach depends on (confirmed while testing this: it exactly
+  // doubled the page count). So the height budget here is deliberately
+  // Letter's shorter usable height — (279.4 - 2*12) * 96/25.4 = 965.29 →
+  // 960, with a few extra px of safety margin — which comfortably fits
+  // inside EITHER paper size. On an actual A4 print this leaves a little
+  // unused white space at the bottom of every page; that's a fair trade
+  // for never again silently splitting into extra pages depending on
+  // which paper size an OS/engine decided to use.
+  const CONTENT_WIDTH_PX = 703;
+  const CONTENT_HEIGHT_PX = 960;
+  const MAX_PAGES = 200;
 
-  // The set of elements that must never be sliced in half across a page
-  // break. Different pages (an invoice vs. the annual report) use
-  // different block classes, so this list covers both — a selector that
-  // matches nothing on a given page is simply a no-op.
-  const ATOMIC_SELECTORS = [
-    ".print-header", ".print-meta", ".print-title", ".print-totals",
-    ".print-payment", ".print-note",
-    ".print-table tr", ".print-payment tr", ".data-table tr",
-    ".report-summary", ".concentration-box",
-  ].join(",");
+  function collectFlowItems(pageEl) {
+    const items = [];
+    Array.from(pageEl.children).forEach(child => {
+      if (child.classList.contains("watermark")) return;
+      if (child.classList.contains("print-footer")) return;
+      if (child.tagName === "TABLE") {
+        const thead = child.querySelector("thead");
+        const tbody = child.querySelector("tbody");
+        const rows = tbody ? Array.from(tbody.children) : [];
+        // Whenever a split table starts a fresh page, buildPageElement()
+        // re-adds this thead so the columns stay labeled — that repeated
+        // header costs real vertical space on every page it appears on,
+        // not just the first. Measuring it here (once) and folding it
+        // into packPages()'s budget is what was missing before: every
+        // page's row budget was computed as if the thead were free,
+        // which let one extra row get packed onto every page and pushed
+        // the footer down into the last row instead of below it.
+        const theadHeight = thead ? thead.getBoundingClientRect().height : 0;
+        if (rows.length === 0) {
+          items.push({ type: "atomic", el: child });
+        } else {
+          rows.forEach(tr => items.push({
+            type: "row", tr,
+            tableClassName: child.className,
+            theadHTML: thead ? thead.outerHTML : "",
+            theadHeight,
+          }));
+        }
+      } else {
+        items.push({ type: "atomic", el: child });
+      }
+    });
+    return items;
+  }
+
+  function measure(items) {
+    return items.map(item => {
+      const el = item.type === "row" ? item.tr : item.el;
+      return Object.assign({}, item, { height: el.getBoundingClientRect().height });
+    });
+  }
+
+  function packPages(items, usableHeightPx) {
+    const pages = [];
+    let current = [];
+    let currentHeight = 0;
+    let openTableClass = null; // which table (if any) is already open on the current page — a row of this table needs no extra thead; any other row does
+
+    items.forEach(item => {
+      const isRow = item.type === "row";
+      const needsThead = isRow && item.tableClassName !== openTableClass;
+      let extra = needsThead ? item.theadHeight : 0;
+
+      if (current.length && currentHeight + item.height + extra > usableHeightPx) {
+        pages.push(current);
+        current = [];
+        currentHeight = 0;
+        openTableClass = null;
+        // starting a fresh page — a row now definitely needs its own
+        // thead again, even if it didn't on the page that just ended
+        extra = isRow ? item.theadHeight : 0;
+      }
+      current.push(item);
+      currentHeight += item.height + extra;
+      openTableClass = isRow ? item.tableClassName : null;
+    });
+    if (current.length) pages.push(current);
+    return pages.slice(0, MAX_PAGES);
+  }
+
+  function buildPageElement(items, footerEl, watermarkEl) {
+    const page = document.createElement("div");
+    page.className = "printed-page";
+    page.style.width = CONTENT_WIDTH_PX + "px";
+    page.style.height = CONTENT_HEIGHT_PX + "px";
+
+    if (watermarkEl) {
+      const wm = watermarkEl.cloneNode(true);
+      wm.style.display = "block";
+      page.appendChild(wm);
+    }
+
+    const body = document.createElement("div");
+    body.className = "printed-page-body";
+
+    let openTbody = null, openTableClass = null;
+    items.forEach(item => {
+      if (item.type === "row") {
+        if (openTableClass !== item.tableClassName) {
+          const table = document.createElement("table");
+          table.className = item.tableClassName;
+          if (item.theadHTML) table.insertAdjacentHTML("beforeend", item.theadHTML);
+          openTbody = document.createElement("tbody");
+          table.appendChild(openTbody);
+          body.appendChild(table);
+          openTableClass = item.tableClassName;
+        }
+        openTbody.appendChild(item.tr.cloneNode(true));
+      } else {
+        openTableClass = null;
+        body.appendChild(item.el.cloneNode(true));
+      }
+    });
+    page.appendChild(body);
+
+    if (footerEl) {
+      const footer = footerEl.cloneNode(true);
+      footer.style.display = "";
+      footer.classList.add("printed-page-footer");
+      page.appendChild(footer);
+    }
+    return page;
+  }
 
   function waitForImages(root) {
     const imgs = Array.from(root.querySelectorAll("img"));
@@ -62,112 +213,146 @@ const PdfExport = (() => {
     }));
   }
 
-  // Y-offsets (in pageEl's own local pixel space) of every atomic
-  // block's top/bottom edge — used to pull a candidate page break back
-  // to a safe spot instead of cutting a block in half.
-  function findBreakBoxes(root) {
-    const rootTop = root.getBoundingClientRect().top;
-    const boxes = [];
-    root.querySelectorAll(ATOMIC_SELECTORS).forEach(el => {
-      const r = el.getBoundingClientRect();
-      boxes.push({ top: r.top - rootTop, bottom: r.bottom - rootTop });
+  // Rebuilds outputEl's content as a sequence of .printed-page elements
+  // reflowed from pageEl. Must run with pageEl laid out at
+  // CONTENT_WIDTH_PX (the .paginating body class below does this) so
+  // measurements match the final page width exactly. Returns the page
+  // count.
+  async function build(pageEl, footerEl, outputEl) {
+    await waitForImages(pageEl);
+    const watermarkEl = pageEl.querySelector(".watermark");
+    const isWatermarkOn = watermarkEl && watermarkEl.style.display !== "none";
+    const items = measure(collectFlowItems(pageEl));
+    const footerHeightPx = footerEl ? footerEl.getBoundingClientRect().height : 0;
+    // SAFETY_MARGIN_PX exists because summing individually-measured row
+    // heights isn't exactly equal to how tall those same rows come out
+    // once they're all stacked together for real: border-collapse on
+    // <table> merges each pair of adjacent row borders into one shared
+    // line, so measuring rows one at a time (each counting its own full
+    // border) doesn't quite match their combined height once collapsed.
+    // Packing right up to the exact computed budget left about 20-25px
+    // of real per-page shortfall from this — invisible in this app's
+    // own print rendering (which has some slack from CONTENT_HEIGHT_PX
+    // being Letter-safe, not the full A4 height, see above) but a real,
+    // visible footer/last-row overlap in the ⬇ שמור כ-PDF path, which
+    // renders each page's exact box with html2canvas instead. A flat
+    // safety margin is simpler and more robust than trying to compute
+    // the exact border-collapse delta.
+    const SAFETY_MARGIN_PX = 40;
+    const usableHeightPx = CONTENT_HEIGHT_PX - footerHeightPx - SAFETY_MARGIN_PX;
+    const pages = packPages(items, usableHeightPx);
+
+    outputEl.innerHTML = "";
+    pages.forEach(pageItems => {
+      outputEl.appendChild(buildPageElement(pageItems, footerEl, isWatermarkOn ? watermarkEl : null));
     });
-    boxes.sort((a, b) => a.top - b.top);
-    return boxes;
+    return pages.length;
   }
 
-  function computeSlices(totalHeightPx, usableHeightPx, boxes) {
-    const slices = [];
-    let cursor = 0;
-    let guard = 0;
-    while (cursor < totalHeightPx - 1 && guard++ < MAX_PAGES) {
-      const limit = cursor + usableHeightPx;
-      if (limit >= totalHeightPx) { slices.push([cursor, totalHeightPx]); break; }
-      let safe = limit;
-      for (const b of boxes) {
-        if (b.top < limit && b.bottom > limit) { safe = b.top; break; } // this block straddles the limit — break before it
-      }
-      if (safe <= cursor) safe = limit; // no safe boundary in range (a single block taller than a page) — hard cut
-      slices.push([cursor, safe]);
-      cursor = safe;
-    }
-    return slices;
-  }
+  return { build, CONTENT_WIDTH_PX, CONTENT_HEIGHT_PX, A4_WIDTH_MM, A4_HEIGHT_MM, MARGIN_MM };
+})();
 
+const PdfExport = (() => {
   async function ensureLibsLoaded() {
     if (typeof window.html2canvas !== "function") throw new Error("html2canvas לא נטען");
     if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("jsPDF לא נטען");
   }
 
-  // pageEl: the .print-page element to render. footerEl: the element to
-  // draw once per page as a repeating footer (pass null for none — it
-  // just prints once at wherever it naturally falls). Returns the jsPDF
-  // instance; call .save(filename) on it (kept separate so tests/other
-  // callers can inspect the output instead of triggering a download).
-  async function buildPdf({ pageEl, footerEl }) {
-    await ensureLibsLoaded();
-    await waitForImages(pageEl);
-
-    document.body.classList.add("pdf-exporting");
-    const prevFooterDisplay = footerEl ? footerEl.style.display : null;
-    if (footerEl) footerEl.style.display = "none";
-
+  // Runs fn() with <body> in "paginating" mode (pageEl forced to the
+  // exact printed content width, sidebar/buttons hidden) and #paginatedOutput
+  // rebuilt from pageEl's current content, then always tears the mode
+  // back down again afterward — used by both the print button and the
+  // PDF export so they reflow the document the exact same way.
+  async function withPaginatedOutput(pageEl, footerEl, fn) {
+    const outputEl = document.getElementById("paginatedOutput");
+    document.body.classList.add("paginating");
     try {
-      const boxes = findBreakBoxes(pageEl);
-      const sourceWidthPx = pageEl.offsetWidth;
-      const totalHeightPx = pageEl.scrollHeight;
-      const mmPerPx = A4_WIDTH_MM / sourceWidthPx;
-      const usableHeightMm = A4_HEIGHT_MM - MARGIN_MM * 2 - FOOTER_RESERVE_MM;
-      const usableHeightPx = usableHeightMm / mmPerPx;
-
-      const canvas = await html2canvas(pageEl, { scale: RENDER_SCALE, backgroundColor: "#ffffff", useCORS: true });
-      const pxPerSourcePx = canvas.width / sourceWidthPx;
-
-      let footerCanvas = null;
-      if (footerEl) {
-        footerEl.style.display = "";
-        footerCanvas = await html2canvas(footerEl, { scale: RENDER_SCALE, backgroundColor: "#ffffff", useCORS: true });
-        footerEl.style.display = "none";
-      }
-
-      const slices = computeSlices(totalHeightPx, usableHeightPx, boxes);
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ unit: "mm", format: "a4" });
-
-      slices.forEach(([fromPx, toPx], i) => {
-        if (i > 0) pdf.addPage();
-
-        const sliceCanvas = document.createElement("canvas");
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = Math.max(1, Math.round((toPx - fromPx) * pxPerSourcePx));
-        sliceCanvas.getContext("2d").drawImage(
-          canvas,
-          0, Math.round(fromPx * pxPerSourcePx), canvas.width, sliceCanvas.height,
-          0, 0, canvas.width, sliceCanvas.height
-        );
-        const sliceHeightMm = (toPx - fromPx) * mmPerPx;
-        pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", MARGIN_MM, MARGIN_MM, A4_WIDTH_MM - MARGIN_MM * 2, sliceHeightMm);
-
-        if (footerCanvas) {
-          const footerWidthMm = A4_WIDTH_MM - MARGIN_MM * 2;
-          const footerHeightMm = footerWidthMm * (footerCanvas.height / footerCanvas.width);
-          const footerY = A4_HEIGHT_MM - MARGIN_MM - footerHeightMm;
-          pdf.addImage(footerCanvas.toDataURL("image/png"), "PNG", MARGIN_MM, footerY, footerWidthMm, footerHeightMm);
-        }
-      });
-
-      return pdf;
+      await Paginate.build(pageEl, footerEl, outputEl);
+      return await fn(outputEl);
     } finally {
-      document.body.classList.remove("pdf-exporting");
-      if (footerEl) footerEl.style.display = prevFooterDisplay || "";
+      document.body.classList.remove("paginating");
     }
   }
 
+  async function printDocument(pageEl, footerEl) {
+    await withPaginatedOutput(pageEl, footerEl, async () => {
+      document.body.classList.add("printing-paginated");
+      await new Promise(resolve => {
+        const cleanup = () => { document.body.classList.remove("printing-paginated"); resolve(); };
+        window.addEventListener("afterprint", cleanup, { once: true });
+        window.print();
+        // afterprint doesn't fire in every environment (some in-app
+        // browsers/webviews) — this is a safety net so the class is
+        // never left stuck on.
+        setTimeout(cleanup, 3000);
+      });
+    });
+  }
+
+  async function buildPdf(pageEl, footerEl) {
+    await ensureLibsLoaded();
+    return withPaginatedOutput(pageEl, footerEl, async (outputEl) => {
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ unit: "mm", format: "a4" });
+      const pageEls = Array.from(outputEl.querySelectorAll(".printed-page"));
+      const widthMm = Paginate.A4_WIDTH_MM - Paginate.MARGIN_MM * 2;
+      const heightMm = (Paginate.CONTENT_HEIGHT_PX / Paginate.CONTENT_WIDTH_PX) * widthMm;
+
+      for (let i = 0; i < pageEls.length; i++) {
+        if (i > 0) pdf.addPage();
+        const canvas = await html2canvas(pageEls[i], {
+          scale: 3, backgroundColor: "#ffffff", useCORS: true,
+          width: Paginate.CONTENT_WIDTH_PX, height: Paginate.CONTENT_HEIGHT_PX,
+          onclone: (clonedDoc) => {
+            // "Tainted canvases may not be exported": the printed page
+            // itself only ever uses the self-hosted DejaVu font (see
+            // --font-print in style.css), but every page's <head> still
+            // has the Google Fonts <link> for the app's on-screen Rubik
+            // UI font, and that's a cross-origin stylesheet. html2canvas
+            // walks all stylesheets in the document while cloning it —
+            // touching that cross-origin stylesheet is enough to taint
+            // the canvas in some browsers, even though nothing in the
+            // captured .printed-page subtree actually renders in Rubik.
+            // Dropping it from the clone removes the only cross-origin
+            // resource on the page, with zero visual effect on the PDF.
+            clonedDoc.querySelectorAll(
+              'link[href*="fonts.googleapis.com"], link[href*="fonts.gstatic.com"]'
+            ).forEach((el) => el.remove());
+          },
+        });
+        // JPEG, not PNG: jsPDF embeds a JPEG's already-compressed bytes
+        // directly into the PDF stream, but its PNG path re-encodes the
+        // bitmap essentially uncompressed — a single A4 page at this
+        // resolution came out over 20MB as PNG and under 300KB as JPEG
+        // (quality 0.92), with no visible difference for a document
+        // that's mostly white background, black text and thin lines.
+        pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", Paginate.MARGIN_MM, Paginate.MARGIN_MM, widthMm, heightMm);
+      }
+      return pdf;
+    });
+  }
+
   async function exportAndSave({ pageEl, footerEl, filename }) {
-    const pdf = await buildPdf({ pageEl, footerEl });
+    // Opening the app straight from disk (double-clicking index.html, a
+    // file:// address) is the single most common real cause of
+    // html2canvas's "Tainted canvases may not be exported": under
+    // file://, Chrome/Safari treat every loaded resource — even the
+    // app's own same-folder images (logo, stamp) — as unverifiably
+    // cross-origin, and drawing any of them into a canvas blocks the
+    // canvas from ever being exported. There is no code-side fix for
+    // that; the app has to be served over http(s) (the GitHub Pages
+    // URL, or any local server) for canvas-based PDF export to work at
+    // all. Fail with a clear message instead of the cryptic browser one.
+    if (window.location.protocol === "file:") {
+      throw new Error(
+        "שמירת PDF לא עובדת כשפותחים את הקובץ ישירות מהמחשב (file://). " +
+        "יש לגלוש לכתובת המקוונת של האתר (למשל כתובת ה-GitHub Pages), ואז לנסות שוב."
+      );
+    }
+    const pdf = await buildPdf(pageEl, footerEl);
     pdf.save(filename);
     return pdf;
   }
 
-  return { buildPdf, exportAndSave };
+  return { printDocument, buildPdf, exportAndSave };
 })();

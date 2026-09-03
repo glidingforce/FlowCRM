@@ -503,31 +503,18 @@ table.data-table tfoot td { font-weight: 700; border-top: 2px solid var(--border
      it, so this is a fix for a real, disclosed suspicion, not a
      confirmed-reproduced root cause. */
   .app-shell { min-height: 0 !important; }
-  /* Footer position — reverted. `position: fixed` (the previous approach)
-     tested correctly in THIS sandbox's Chrome/Playwright pipeline, on
-     both single- and multi-page documents, and was shipped on that basis
-     with an explicitly disclosed caveat: it had never been checked against
-     real Safari/iOS, because this sandbox has no way to run that engine.
-     Real iPhone-generated PDFs proved that caveat right, and the approach
-     wrong: on Safari, a fixed-position element does not repeat on every
-     printed page (it renders once) and on the page it does render on it
-     can overlap the last row of content. Net effect on iOS: the footer
-     was MISSING on later pages and OVERLAPPING on the page it did appear
-     on — worse than not attempting a fixed footer at all.
-     There is no known pure-CSS trick that reliably repeats a footer on
-     every printed page across both Chrome's and Safari's print engines —
-     that's a real gap between how the two implement print, not a tunable
-     number. Pinning content to the bottom of every physical page across
-     browsers needs the document to be paginated in JS (measuring content
-     and inserting explicit page breaks) rather than left to the browser's
-     own print layout — a real feature, not a CSS fix, and not implemented
-     here.
-     So this reverts to the safe fallback: the footer sits in normal
-     document flow, after the rest of the content, and prints wherever
-     that lands — right under the content on a single-page document, on
-     its own on the last page of a longer one. It will not hug the bottom
-     of every page, but it will not disappear or overlap on any browser,
-     which matters more. */
+  /* Footer position, safe FALLBACK path — used only if the JS pagination
+     below (pdf-export.js, .printed-page) doesn't run for some reason
+     (script failed to load, threw, etc.) and printBtn falls back to a
+     bare window.print(). position:fixed was tried here before and had
+     to be reverted — it repeated correctly on every page in Chrome but
+     doesn't repeat at all past page 1 on Safari, and could overlap
+     content on the page it did show up on (confirmed on real iPhone
+     PDFs). This plain-flow version is not pinned to the bottom, but it
+     is correct on every browser. The REAL fix — a footer actually
+     pinned to the bottom of every page, on every engine — is the
+     .printed-page structure below, which JS builds and this fallback
+     only exists for. */
   .print-page {
     position: static; border: none; box-shadow: none; margin: 0; padding: 0;
     width: 100%; max-width: 100%; font-size: 12px;
@@ -535,6 +522,16 @@ table.data-table tfoot td { font-weight: 700; border-top: 2px solid var(--border
   .print-footer { position: static; margin-top: 16mm; }
   @page { size: A4; margin: 12mm; }
   .no-print { display: none !important; }
+  /* Paginated print mode (see pdf-export.js / PdfExport.printDocument):
+     once #paginatedOutput has been built, print IT instead of the live
+     .print-page — its .printed-page boxes already have real forced page
+     breaks (break-after:page) and a footer pinned to each page's own
+     bottom via plain flexbox (margin-top:auto), which is standard,
+     well-supported CSS that doesn't depend on how a given engine
+     interprets position:fixed or @page margins during pagination. */
+  body.printing-paginated .print-page { display: none !important; }
+  body.printing-paginated #paginatedOutput,
+  body.printing-paginated #paginatedOutput * { visibility: visible; }
   .print-table, .print-payment table { page-break-inside: auto; }
   .print-table tr, .print-payment tr { page-break-inside: avoid; }
   .print-header, .print-meta, .print-title, .print-totals, .print-payment, .print-note, .print-footer { page-break-inside: avoid; }
@@ -545,24 +542,76 @@ table.data-table tfoot td { font-weight: 700; border-top: 2px solid var(--border
   .print-payment, .print-note { margin-top: 8px; }
 }
 
-/* ---------- PDF export snapshot mode (see pdf-export.js) ----------
-   The ⬇ שמור כ-PDF button no longer uses the browser's native print/PDF
-   pipeline — it renders the document itself with html2canvas + jsPDF so
-   the output is identical on an iPhone and on a laptop, instead of
-   depending on whichever print engine happens to be running it. But
-   html2canvas snapshots the page as currently laid out on SCREEN (it
-   does not switch to @media print), so this block mirrors the visual
-   parts of the @media print rules above as a plain class toggled on
-   <body> for the moment of the snapshot — see PdfExport.exportDocument. */
-body.pdf-exporting .sidebar,
-body.pdf-exporting .hamburger,
-body.pdf-exporting .no-print { display: none !important; }
-body.pdf-exporting .app-shell { display: block; min-height: 0; }
-body.pdf-exporting .main { padding: 0; max-width: none; margin: 0; width: auto; }
-body.pdf-exporting .print-page {
-  position: static; border: none; box-shadow: none; margin: 0; padding: 0;
-  width: 780px; max-width: 780px; font-size: 12px;
+/* ---------- Real print pagination (see pdf-export.js / Paginate) ----------
+   Both the 🖨 הדפסה and ⬇ שמור כ-PDF buttons now reflow the live document
+   into a sequence of .printed-page boxes before doing anything else — a
+   fixed, known size per page (computed from A4 at the CSS-standard
+   96px/inch, see pdf-export.js), built by walking the real DOM and
+   measuring real element heights so a table row is never split across
+   a page. The footer is just the LAST flex child of that fixed-height
+   box with margin-top:auto — plain flexbox pins it to the bottom of its
+   own page reliably, without position:fixed/absolute and without
+   depending on how any given engine maps @page margins during print. */
+#paginatedOutput { display: none; }
+
+/* While Paginate.build() is running (both for print and for PDF export)
+   #printPage is forced to the exact printed content width so the
+   heights it measures match the final page body width exactly. Kept
+   off-screen (fixed + far left) rather than hidden with visibility, so
+   nothing visibly flashes on screen while this runs. */
+body.paginating #printPage {
+  position: fixed; top: 0; left: -10000px; visibility: hidden;
+  border: none; box-shadow: none; margin: 0; padding: 0;
+  width: 703px; max-width: 703px; font-size: 12px;
 }
+/* #paginatedOutput itself must stay actually rendered (not display:none,
+   not visibility:hidden) whenever it holds content, because the PDF
+   export path captures it with html2canvas — a hidden element has
+   nothing to capture. Off-screen positioning keeps it invisible to the
+   user without hiding it from that capture. */
+body.paginating:not(.printing-paginated) #paginatedOutput {
+  display: block; position: fixed; top: 0; left: -10000px;
+}
+/* During an actual print (window.print()), bring it into normal flow so
+   the @media print visibility rules above can show it in place of the
+   live .print-page. #paginatedOutput's own .printed-page children are a
+   fixed 703px wide (the printable A4/Letter content width) — but they
+   still sit inside .main, which has its own on-screen padding/max-width
+   for the app's normal layout (32/36px padding, 900px max-width). Left
+   as-is, that padding would eat into the printable width and push the
+   right side of a 703px-wide page past what's actually left, clipping
+   it — reset the same way the old canvas-based export mode did. */
+body.printing-paginated #paginatedOutput {
+  display: block; position: static; left: auto; top: auto;
+}
+body.printing-paginated .app-shell { display: block; min-height: 0; }
+body.printing-paginated .main { padding: 0; max-width: none; margin: 0; width: auto; }
+
+.printed-page {
+  position: relative;
+  background: #fff;
+  font-family: var(--font-print);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  break-after: page;
+  page-break-after: always;
+  overflow: hidden;
+}
+.printed-page:last-child { break-after: auto; page-break-after: auto; }
+/* overflow:hidden here (in addition to the parent's) is defense in
+   depth: if pagination ever still slightly underestimates a page's
+   content (the parent's SAFETY_MARGIN_PX in pdf-export.js is meant to
+   prevent that), this makes the failure mode "a sliver of the last row
+   is silently missing" instead of "the footer renders on top of it,
+   unreadable" — a real corner case is far better invisible than ugly. */
+.printed-page-body { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+/* This margin-top:auto is the whole trick: inside a fixed-height flex
+   column, an auto margin on the last child consumes all the leftover
+   space above it — standard CSS3 flexbox, supported identically on
+   Chrome and Safari, unlike the print-specific positioning tricks tried
+   before this. */
+.printed-page-footer { flex: 0 0 auto; margin-top: auto; }
 
 /* responsive */
 @media (max-width: 860px) {
