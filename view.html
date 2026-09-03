@@ -88,6 +88,12 @@
         <div id="noteText"></div>
       </div>
 
+      <!-- position:fixed in the print stylesheet (see style.css) is what
+           makes this repeat on every physical page, not just appear once —
+           Chrome's print engine renders a fixed-position element at the
+           same spot on EVERY page, which is the one native, reliable way
+           to get a repeating per-page footer without a custom pagination
+           engine. -->
       <div class="print-footer">
         <div class="print-footer-brand">
           <div class="footer-caption">הופק על ידי</div>

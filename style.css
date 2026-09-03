@@ -488,32 +488,41 @@ table.data-table tfoot td { font-weight: 700; border-top: 2px solid var(--border
   .sidebar, .hamburger { display: none !important; }
   body * { visibility: hidden; }
   .print-page, .print-page * { visibility: visible; }
-  /* Footer position — after 3 rounds of trying to pin this to the literal
-     bottom of the page (forced min-height, flex+margin-top:auto, then a
-     fixed-height box with the footer at position:absolute;bottom:0), a
-     2-page document exposed why every one of those was wrong in the same
-     way: whichever trick I used, it pins the footer to the bottom of
-     .print-page's own box — but on a document long enough to spill onto a
-     second physical page, that ONE box now spans BOTH pages, so "bottom of
-     the box" lands wherever the content happens to end (right after the
-     totals table, mid-page-2), not at page 2's actual bottom edge. That's
-     not a bug specific to this last attempt — flex+margin-auto had the
-     exact same flaw, it just never got tested against a long document
-     before now. Pure CSS in Chrome's print engine has no reliable way to
-     say "repeat this footer at the bottom of every page" (that needs CSS
-     Paged Media's running elements, which Chrome doesn't implement) short
-     of a JS pagination system that measures and splits content — real
-     scope, not a one-line fix. So: back to a plain, unforced footer that
-     flows right after the content with a fixed gap. On a short document it
-     won't sit flush against the physical page edge anymore — it'll be a
-     few cm below the totals instead — but it will be CORRECT on every
-     document length, on every engine, with nothing to measure or guess. */
+  /* Footer position — take 5, and the first one that actually repeats the
+     footer on every physical page (the ask), with a real, disclosed limit.
+     Rounds 1-3 (forced min-height, flex+margin-top:auto, a fixed-height box
+     with position:absolute;bottom:0) all pinned the footer to the bottom of
+     .print-page's OWN box — fine on one page, but on a document long enough
+     to spill onto a second page, that one box spans both pages, so "its
+     bottom" lands wherever content happens to end, not at page 2's actual
+     edge. Round 4 tried a wrapper <table> with the footer as its <tfoot>,
+     since browsers repeat thead/tfoot across a table's OWN page breaks —
+     but the items that actually cause multi-page overflow live in a
+     *nested* table, so the wrapper table was one giant row that never
+     triggered that repeat behavior. Tested: it didn't repeat.
+     This is position:fixed, which Chrome's print engine DOES render at the
+     same spot on every physical page — confirmed working here for both the
+     repeat (multi-page) and the true-bottom pin (single page). The @page
+     margin below reserves room so normal content doesn't run under it.
+     The disclosed limit: that reservation is measured against this
+     sandbox's own PDF-generation pipeline (Playwright), and testing here
+     turned up something I can't fully explain or control — a `<table>`
+     row's own page-break-inside:avoid did not seem to respect this margin
+     no matter how large I made it, so on a document with enough line items
+     to genuinely need 3+ pages, the last row or two on a NON-FINAL page can
+     still touch the footer. It's very unlikely to matter for a normal
+     receipt/invoice (this took 40 fabricated line items to reproduce), and
+     I have no way to test an actual browser's native print dialog — which
+     may paginate tables differently — from this sandbox. If it shows up on
+     a real long invoice, that's a real report to send back; the fix at
+     that point is measuring content in JS and inserting page breaks
+     manually, not another CSS number. */
   .print-page {
     position: static; border: none; box-shadow: none; margin: 0; padding: 0;
     width: 100%; max-width: 100%; font-size: 12px;
   }
-  .print-footer { margin-top: 20mm; }
-  @page { size: A4; margin: 10mm; }
+  .print-footer { position: fixed; left: 10mm; right: 10mm; bottom: 4mm; margin-top: 0; }
+  @page { size: A4; margin: 10mm 10mm 20mm 10mm; }
   .no-print { display: none !important; }
   .print-table, .print-payment table { page-break-inside: auto; }
   .print-table tr, .print-payment tr { page-break-inside: avoid; }
