@@ -383,9 +383,12 @@ function autoStatus() {
   return existingDoc ? existingDoc.status : "open";
 }
 
-function collectDoc(statusOverride) {
-  const isNew = !existingDoc;
-  const doc = {
+// buildDocObject is a PURE function — it reads the form and returns a plain
+// object, with no side effects on DB. Preview needs exactly this: a look at
+// what the document WOULD be, without it existing anywhere yet. Only
+// saveDoc() (below) actually persists anything.
+function buildDocObject(statusOverride) {
+  return {
     id: existingDoc ? existingDoc.id : uid("doc"),
     docType: docType.value,
     docNumber: docNumber.value,
@@ -402,6 +405,9 @@ function collectDoc(statusOverride) {
     isCanceled: existingDoc ? existingDoc.isCanceled : false,
     createdAt: existingDoc ? existingDoc.createdAt : new Date().toISOString(),
   };
+}
+
+function saveDoc(doc, isNew) {
   DB.upsertDocument(doc);
   if (isNew) DB.bumpDocNumber(doc.docType, doc.docNumber);
   return doc;
@@ -413,11 +419,18 @@ document.getElementById("docForm").addEventListener("submit", (e) => {
     alert(`כבר קיים מסמך מסוג ${DOC_TYPES[docType.value].label} עם מספר ${docNumber.value}. שנה את מספר המסמך ונסה שוב.`);
     return;
   }
-  const doc = collectDoc();
+  const doc = saveDoc(buildDocObject(), !existingDoc);
+  sessionStorage.removeItem("flowcrm_preview_doc");
   toast("המסמך נשמר");
   location.href = "view.html?id=" + doc.id;
 });
 
+// "תצוגה מקדימה" must NOT save anything — a draft you're only looking at
+// shouldn't clutter the real documents list if you never actually hit
+// "שמור מסמך". The doc is handed to view.html through sessionStorage
+// instead of localStorage, tagged as a preview; view.html only writes it
+// for real if you explicitly save from there (see the preview banner and
+// the "back to documents" confirmation logic in view.html).
 document.getElementById("previewBtn").addEventListener("click", () => {
   if (isDuplicateDocNumber()) {
     alert(`כבר קיים מסמך מסוג ${DOC_TYPES[docType.value].label} עם מספר ${docNumber.value}. שנה את מספר המסמך ונסה שוב.`);
@@ -425,8 +438,9 @@ document.getElementById("previewBtn").addEventListener("click", () => {
   }
   // Receipts are always "closed" (see autoStatus) — the draft concept only
   // makes sense for invoice/quote, which aren't a completed transaction yet.
-  const doc = collectDoc(existingDoc ? existingDoc.status : (docType.value === "receipt" ? "closed" : "draft"));
-  location.href = "view.html?id=" + doc.id;
+  const doc = buildDocObject(existingDoc ? existingDoc.status : (docType.value === "receipt" ? "closed" : "draft"));
+  sessionStorage.setItem("flowcrm_preview_doc", JSON.stringify({ doc, isNew: !existingDoc }));
+  location.href = "view.html?preview=1";
 });
 </script>
 </body>

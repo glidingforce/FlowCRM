@@ -16,16 +16,21 @@
 <body>
 <div class="app-shell">
   <div class="main" style="max-width:900px;">
+    <div class="no-print" id="previewBanner" style="display:none;background:#fef3c7;color:#92400e;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;font-weight:600;">
+      📝 זוהי תצוגה מקדימה — המסמך עדיין לא נשמר. הוא יישמר רק אם תלחצו "שמור מסמך".
+    </div>
+
     <div class="btn-row no-print" style="margin-bottom:16px;">
       <button class="btn btn-primary" id="printBtn">🖨 הדפסה</button>
       <button class="btn btn-primary" id="savePdfBtn">⬇ שמור כ-PDF</button>
+      <button class="btn btn-success" id="saveDocBtn" style="display:none;">💾 שמור מסמך</button>
       <div class="dropdown-wrap" id="closeWithWrap" style="display:none;">
         <button type="button" class="btn btn-success" id="closeWithBtn">✓ סגור עם...</button>
         <div class="dropdown-menu" id="closeWithMenu"></div>
       </div>
       <button class="btn" id="editBtn">✏ עריכה</button>
       <button class="btn" id="shareBtn">📤 שתף</button>
-      <a href="documents.html" class="btn btn-ghost">← חזרה למסמכים</a>
+      <a href="documents.html" class="btn btn-ghost" id="backToDocsLink">← חזרה למסמכים</a>
     </div>
 
     <div class="print-page" id="printPage" style="position:relative;">
@@ -88,12 +93,9 @@
         <div id="noteText"></div>
       </div>
 
-      <!-- position:fixed in the print stylesheet (see style.css) is what
-           makes this repeat on every physical page, not just appear once —
-           Chrome's print engine renders a fixed-position element at the
-           same spot on EVERY page, which is the one native, reliable way
-           to get a repeating per-page footer without a custom pagination
-           engine. -->
+      <!-- Prints in normal document flow after the content (see style.css
+           for why a fixed/repeating-per-page footer was tried and reverted
+           after it broke on Safari/iOS). -->
       <div class="print-footer">
         <div class="print-footer-brand">
           <div class="footer-caption">הופק על ידי</div>
@@ -108,10 +110,29 @@
 <script src="drive-sync.js"></script>
 <script>
 const params = new URLSearchParams(location.search);
-const doc = DB.getDocument(params.get("id"));
-if (!doc) {
-  document.body.innerHTML = "<p style='padding:40px;text-align:center'>המסמך לא נמצא. <a href='documents.html'>חזרה לרשימה</a></p>";
-  throw new Error("doc not found");
+// Preview mode: the doc came from create.html's "תצוגה מקדימה" button and
+// was NEVER written to DB — it's sitting in sessionStorage instead,
+// specifically so that just looking at a draft doesn't quietly create (or
+// overwrite) a real saved document. isPreview + previewIsNew stay in scope
+// for the save/discard logic further down.
+const isPreview = params.get("preview") === "1";
+let previewIsNew = false;
+let doc;
+if (isPreview) {
+  let raw = null;
+  try { raw = JSON.parse(sessionStorage.getItem("flowcrm_preview_doc") || "null"); } catch (e) {}
+  if (!raw || !raw.doc) {
+    document.body.innerHTML = "<p style='padding:40px;text-align:center'>אין תצוגה מקדימה זמינה (אולי רועננה הדף). <a href='documents.html'>חזרה לרשימה</a></p>";
+    throw new Error("no preview doc");
+  }
+  doc = raw.doc;
+  previewIsNew = !!raw.isNew;
+} else {
+  doc = DB.getDocument(params.get("id"));
+  if (!doc) {
+    document.body.innerHTML = "<p style='padding:40px;text-align:center'>המסמך לא נמצא. <a href='documents.html'>חזרה לרשימה</a></p>";
+    throw new Error("doc not found");
+  }
 }
 const settings = DB.getSettings();
 
@@ -171,16 +192,48 @@ if (doc.isCanceled) {
 
 document.getElementById("printBtn").addEventListener("click", () => window.print());
 document.getElementById("savePdfBtn").addEventListener("click", () => window.print());
-document.getElementById("editBtn").addEventListener("click", () => location.href = "create.html?id=" + doc.id);
+
+/* ---- Preview mode: nothing has been saved yet. "עריכה" goes back to the
+   create form via browser history (not a fresh create.html?id=... load —
+   there's no real id to load, this draft doesn't exist in DB) so whatever
+   was typed is still there; "שמור מסמך" commits it for real; leaving via
+   "חזרה למסמכים" asks first instead of silently discarding the draft. */
+function persistPreviewDoc() {
+  DB.upsertDocument(doc);
+  if (previewIsNew) DB.bumpDocNumber(doc.docType, doc.docNumber);
+  sessionStorage.removeItem("flowcrm_preview_doc");
+}
+if (isPreview) {
+  document.getElementById("previewBanner").style.display = "";
+  document.getElementById("saveDocBtn").style.display = "";
+  document.getElementById("editBtn").addEventListener("click", () => history.back());
+  document.getElementById("saveDocBtn").addEventListener("click", () => {
+    persistPreviewDoc();
+    toast("המסמך נשמר");
+    location.href = "view.html?id=" + doc.id;
+  });
+  document.getElementById("backToDocsLink").addEventListener("click", (e) => {
+    e.preventDefault();
+    const wantsSave = confirm('המסמך הזה עדיין לא נשמר.\n\nאישור = שמירה ומעבר לרשימת המסמכים\nביטול = הישארות כאן (המסמך עדיין לא יישמר)');
+    if (wantsSave) {
+      persistPreviewDoc();
+      location.href = "documents.html";
+    }
+    // Cancel: stay right here — nothing saved, nothing lost either.
+  });
+} else {
+  document.getElementById("editBtn").addEventListener("click", () => location.href = "create.html?id=" + doc.id);
+}
 
 /* ---- "סגור עם..." — convert a quote into an invoice/receipt, or an
    invoice into a receipt. Cancelling/changing status is admin-only now
-   (documents.html), so this is the only status-affecting action left here. */
+   (documents.html), so this is the only status-affecting action left here.
+   Doesn't apply to an unsaved preview — there's nothing to convert yet. */
 const CLOSE_WITH_OPTIONS = {
   quote: ["invoice", "receipt"],
   invoice: ["receipt"],
 };
-const closeOptions = !doc.isCanceled && doc.status !== "closed" ? (CLOSE_WITH_OPTIONS[doc.docType] || []) : [];
+const closeOptions = !isPreview && !doc.isCanceled && doc.status !== "closed" ? (CLOSE_WITH_OPTIONS[doc.docType] || []) : [];
 if (closeOptions.length) {
   const wrap = document.getElementById("closeWithWrap");
   const menu = document.getElementById("closeWithMenu");
