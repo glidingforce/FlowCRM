@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>מסמך חדש - FlowCRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1e3a5f">
+</head>
+<body>
+<div class="app-shell">
+  <div class="main">
+    <h1 class="page-title">מסמך חדש</h1>
+    <p class="page-subtitle">צור חשבונית, קבלה או הצעת מחיר</p>
+
+    <form id="docForm">
+      <div class="card">
+        <div class="section-bar">פרטי מסמך</div>
+        <div class="section-body">
+          <div class="field-row">
+            <div class="field">
+              <label>תאריך *</label>
+              <input type="date" id="issueDate" required>
+            </div>
+            <div class="field">
+              <label>מספר מסמך</label>
+              <input type="text" id="docNumber" required>
+            </div>
+            <div class="field">
+              <label>סוג מסמך</label>
+              <select id="docType">
+                <option value="invoice">חשבונית עסקה</option>
+                <option value="receipt">קבלה</option>
+                <option value="quote">הצעת מחיר</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field" style="flex-basis:100%">
+              <label>מושא העבודה *</label>
+              <input type="text" id="workSubject" placeholder="לדוגמה: החלפת לוח חשמל, קבלת תשלום" required>
+            </div>
+          </div>
+          <p id="statusHint" style="font-size:12px;color:var(--text-muted);margin:0;"></p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-bar">פרטי לקוח</div>
+        <div class="section-body">
+          <div class="field-row">
+            <div class="field">
+              <label>בחר לקוח</label>
+              <select id="clientSelect">
+                <option value="">לקוח חד פעמי</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>שם לקוח *</label>
+              <input type="text" id="clientName" placeholder="שם החברה או הלקוח" required>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field" style="flex-basis:100%">
+              <label>כתובת</label>
+              <input type="text" id="clientAddress" placeholder="רחוב ומספר, עיר">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-bar">פריטים</div>
+        <div class="section-body">
+          <button type="button" class="btn add-line-btn" id="addLineBtn">+ הוסף שורה</button>
+          <table class="items-table" id="itemsTable">
+            <thead>
+              <tr>
+                <th style="width:38%">תיאור הפריט</th>
+                <th style="width:14%">כמות</th>
+                <th style="width:16%">מחיר</th>
+                <th style="width:16%">סכום</th>
+                <th style="width:6%"></th>
+              </tr>
+            </thead>
+            <tbody id="itemsBody"></tbody>
+          </table>
+
+          <div class="totals-box">
+            <div class="row"><span>סכום ביניים:</span><span id="subtotalOut">₪0.00</span></div>
+            <div class="row">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" id="includeVat"> כולל מע"מ (<span id="vatRateLabel">0</span>%)
+              </label>
+              <span id="vatOut">₪0.00</span>
+            </div>
+            <div class="row total"><span>סה"כ:</span><span id="totalOut">₪0.00</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="paymentsCard" style="display:none;">
+        <div class="section-bar">פרטי תשלום</div>
+        <div class="section-body">
+          <div id="paymentsList"></div>
+          <button type="button" class="btn" id="addPaymentBtn">+ הוסף תשלום</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-bar">הערה מצורפת</div>
+        <div class="section-body">
+          <textarea id="noteBody" placeholder="הערות נוספות למסמך..."></textarea>
+        </div>
+      </div>
+
+      <div class="btn-row no-print">
+        <button type="submit" class="btn btn-primary">שמור מסמך</button>
+        <button type="button" class="btn" id="previewBtn">תצוגה מקדימה</button>
+        <a href="documents.html" class="btn btn-ghost">ביטול</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="drive-sync.js"></script>
+<script>
+mountShell("create.html");
+
+const params = new URLSearchParams(location.search);
+const editId = params.get("id");
+let existingDoc = editId ? DB.getDocument(editId) : null;
+
+const clientSelect = document.getElementById("clientSelect");
+const clientName = document.getElementById("clientName");
+const clientAddress = document.getElementById("clientAddress");
+const docType = document.getElementById("docType");
+const docNumber = document.getElementById("docNumber");
+const issueDate = document.getElementById("issueDate");
+
+DB.getClients().filter(c => c.active !== false).forEach(c => {
+  const opt = document.createElement("option");
+  opt.value = c.id;
+  opt.textContent = c.name;
+  clientSelect.appendChild(opt);
+});
+
+clientSelect.addEventListener("change", () => {
+  const c = DB.getClient(clientSelect.value);
+  if (c) {
+    clientName.value = c.name;
+    clientAddress.value = c.address || "";
+  }
+});
+
+function refillDocNumber() {
+  if (existingDoc) return;
+  docNumber.value = DB.nextDocNumber(docType.value);
+}
+function updatePaymentsVisibility() {
+  document.getElementById("paymentsCard").style.display = docType.value === "receipt" ? "" : "none";
+}
+// Status is no longer a free-choice field here — it follows the document
+// type automatically: a receipt IS the closing event (money already
+// received) so it's always "closed"; an invoice or quote starts "open"
+// and only becomes "closed" through the "סגור עם..." conversion in
+// view.html, or via admin mode. This just updates the explanatory text.
+function updateStatusHint() {
+  const hint = document.getElementById("statusHint");
+  if (docType.value === "receipt") {
+    hint.textContent = "קבלה נשמרת תמיד כמסמך סגור — היא עצמה מהווה את אירוע הסגירה.";
+  } else {
+    hint.textContent = existingDoc && existingDoc.status === "closed"
+      ? "מסמך זה סגור (נסגר עם מסמך אחר). לא ניתן לשנות זאת מכאן — רק במצב מנהל."
+      : "המסמך יישמר כ\"פתוח\" ויסומן \"סגור\" אוטומטית כשתשתמשו ב-\"סגור עם...\" בתצוגת המסמך.";
+  }
+}
+docType.addEventListener("change", () => { refillDocNumber(); updatePaymentsVisibility(); updateStatusHint(); });
+
+const settings = DB.getSettings();
+document.getElementById("vatRateLabel").textContent = settings.vatRate;
+
+let items = [{ desc: "", qty: 1, price: 0 }];
+
+function renderItems() {
+  const body = document.getElementById("itemsBody");
+  body.innerHTML = "";
+  items.forEach((it, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><input type="text" value="${it.desc.replace(/"/g,'&quot;')}" data-i="${i}" data-f="desc"></td>
+      <td><input type="number" min="0" step="0.01" value="${it.qty}" data-i="${i}" data-f="qty"></td>
+      <td><input type="number" min="0" step="0.01" value="${it.price}" data-i="${i}" data-f="price"></td>
+      <td class="line-total">${money(calcLineTotal(it))}</td>
+      <td><button type="button" class="icon-btn danger" data-del="${i}">🗑</button></td>`;
+    body.appendChild(tr);
+  });
+  // IMPORTANT: on "input" we only patch the data model + this row's own total
+  // cell — never call renderItems() here. Rebuilding the whole <tbody> on
+  // every keystroke replaces the focused <input> with a new DOM node, which
+  // is exactly what was throwing focus out after one character typed.
+  // renderItems() is only called on structural changes (add/delete a line).
+  body.querySelectorAll("input").forEach(inp => {
+    inp.addEventListener("input", () => {
+      const i = +inp.dataset.i, f = inp.dataset.f;
+      items[i][f] = f === "desc" ? inp.value : parseFloat(inp.value) || 0;
+      inp.closest("tr").querySelector(".line-total").textContent = money(calcLineTotal(items[i]));
+      recalc();
+    });
+  });
+  body.querySelectorAll("[data-del]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (items.length === 1) { items = [{ desc: "", qty: 1, price: 0 }]; }
+      else { items.splice(+btn.dataset.del, 1); }
+      renderItems();
+      recalc();
+    });
+  });
+}
+
+document.getElementById("addLineBtn").addEventListener("click", () => {
+  items.push({ desc: "", qty: 1, price: 0 });
+  renderItems();
+});
+
+function recalc() {
+  const subtotal = calcSubtotal(items);
+  const includeVat = document.getElementById("includeVat").checked;
+  const tax = calcTax(subtotal, includeVat, settings.vatRate);
+  const total = calcTotal(subtotal, tax);
+  document.getElementById("subtotalOut").textContent = money(subtotal);
+  document.getElementById("vatOut").textContent = money(tax);
+  document.getElementById("totalOut").textContent = money(total);
+}
+document.getElementById("includeVat").addEventListener("change", recalc);
+
+/* ---- payments (receipts only) ---- */
+let payments = [];
+
+function newPayment() {
+  return { id: uid("pay"), date: issueDate.value || new Date().toISOString().slice(0, 10), method: PAYMENT_METHODS[0], amount: 0, fields: {} };
+}
+
+function renderPayments() {
+  const list = document.getElementById("paymentsList");
+  list.innerHTML = "";
+  if (!payments.length) {
+    list.innerHTML = `<p style="color:var(--text-muted);font-size:13px;margin:0 0 10px;">אין עדיין תשלומים רשומים למסמך זה.</p>`;
+  }
+  payments.forEach((p, i) => {
+    const def = PAYMENT_METHOD_DEFS[p.method] || { fields: [] };
+    const fieldsHtml = def.fields.map(f => {
+      const val = (p.fields[f.key] || "").toString();
+      if (f.type === "bank") {
+        // A dropdown of the major Israeli banks, plus "אחר" which reveals a
+        // free-text input — covers any bank not in the list, and keeps
+        // whatever was already saved even if it doesn't match the list.
+        const isKnown = ISRAELI_BANKS.includes(val);
+        const isOther = val !== "" && !isKnown;
+        const bankOptions = ISRAELI_BANKS.map(b =>
+          `<option value="${b}" ${val === b ? "selected" : ""}>${b}</option>`).join("");
+        return `
+          <div class="field">
+            <label>${f.label}</label>
+            <select data-pi="${i}" data-pf="${f.key}" data-bank-select>
+              <option value="">בחרו בנק...</option>
+              ${bankOptions}
+              <option value="__other" ${isOther ? "selected" : ""}>אחר (הזנה ידנית)</option>
+            </select>
+            <input type="text" data-pi="${i}" data-pf="${f.key}" data-bank-custom
+              placeholder="שם הבנק"
+              value="${isOther ? val.replace(/"/g, "&quot;") : ""}"
+              style="margin-top:6px;${isOther ? "" : "display:none;"}">
+          </div>`;
+      }
+      return `
+      <div class="field">
+        <label>${f.label}</label>
+        <input type="text" value="${val.replace(/"/g, "&quot;")}" data-pi="${i}" data-pf="${f.key}">
+      </div>`;
+    }).join("");
+    const methodOptions = PAYMENT_METHODS.map(m => `<option value="${m}" ${p.method === m ? "selected" : ""}>${m}</option>`).join("");
+    const row = document.createElement("div");
+    row.className = "payment-row";
+    row.innerHTML = `
+      <div class="payment-row-head">
+        <b>תשלום ${i + 1}</b>
+        <button type="button" class="icon-btn danger" data-pdel="${i}">🗑</button>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>תאריך</label><input type="date" value="${p.date}" data-pi="${i}" data-pf="__date"></div>
+        <div class="field"><label>אמצעי תשלום</label><select data-pi="${i}" data-pf="__method">${methodOptions}</select></div>
+        <div class="field"><label>סכום</label><input type="number" min="0" step="0.01" value="${p.amount}" data-pi="${i}" data-pf="__amount"></div>
+      </div>
+      ${fieldsHtml ? `<div class="field-row">${fieldsHtml}</div>` : ""}`;
+    list.appendChild(row);
+  });
+
+  list.querySelectorAll("[data-pf='__date']").forEach(inp => inp.addEventListener("input", e => { payments[+e.target.dataset.pi].date = e.target.value; }));
+  list.querySelectorAll("[data-pf='__amount']").forEach(inp => inp.addEventListener("input", e => { payments[+e.target.dataset.pi].amount = parseFloat(e.target.value) || 0; }));
+  list.querySelectorAll("select[data-pf='__method']").forEach(sel => sel.addEventListener("change", e => {
+    payments[+e.target.dataset.pi].method = e.target.value;
+    payments[+e.target.dataset.pi].fields = {};
+    renderPayments();
+  }));
+  list.querySelectorAll("select[data-bank-select]").forEach(sel => sel.addEventListener("change", e => {
+    const i = +e.target.dataset.pi, key = e.target.dataset.pf;
+    const customInput = e.target.parentElement.querySelector("[data-bank-custom]");
+    if (e.target.value === "__other") {
+      customInput.style.display = "";
+      payments[i].fields[key] = customInput.value; // whatever's already typed, likely empty
+      customInput.focus();
+    } else {
+      customInput.style.display = "none";
+      customInput.value = "";
+      payments[i].fields[key] = e.target.value;
+    }
+  }));
+  list.querySelectorAll("input[data-pf]").forEach(inp => {
+    if (inp.dataset.pf === "__date" || inp.dataset.pf === "__amount") return;
+    inp.addEventListener("input", e => {
+      payments[+e.target.dataset.pi].fields[e.target.dataset.pf] = e.target.value;
+    });
+  });
+  list.querySelectorAll("[data-pdel]").forEach(btn => btn.addEventListener("click", () => {
+    payments.splice(+btn.dataset.pdel, 1);
+    renderPayments();
+  }));
+}
+
+document.getElementById("addPaymentBtn").addEventListener("click", () => {
+  payments.push(newPayment());
+  renderPayments();
+});
+
+/* ---- populate on edit, or defaults on create ---- */
+if (existingDoc) {
+  docType.value = existingDoc.docType;
+  docNumber.value = existingDoc.docNumber;
+  issueDate.value = existingDoc.issueDate;
+  document.getElementById("workSubject").value = existingDoc.workSubject || "";
+  clientSelect.value = existingDoc.clientId || "";
+  clientName.value = existingDoc.clientName || "";
+  clientAddress.value = existingDoc.clientAddress || "";
+  items = existingDoc.items && existingDoc.items.length ? existingDoc.items : items;
+  document.getElementById("includeVat").checked = !!existingDoc.includeVat;
+  payments = existingDoc.payments || [];
+  document.getElementById("noteBody").value = existingDoc.noteBody || "";
+} else {
+  // Left blank on purpose (mandatory field, marked with *) — the date is
+  // no longer auto-filled with today so you have to actively choose it.
+  refillDocNumber();
+}
+renderItems();
+recalc();
+renderPayments();
+updatePaymentsVisibility();
+updateStatusHint();
+
+// Duplicate numbers are only blocked within the same document type — the
+// invoice/receipt/quote counters in Settings are independent sequences, so
+// e.g. invoice 90062 and quote 90062 coexisting is fine; two invoices both
+// numbered 90062 is not.
+function isDuplicateDocNumber() {
+  const num = String(docNumber.value).trim();
+  const type = docType.value;
+  const selfId = existingDoc ? existingDoc.id : null;
+  return DB.getDocuments().some(d => d.id !== selfId && d.docType === type && String(d.docNumber).trim() === num);
+}
+
+// Auto-determined status — see updateStatusHint() above for the reasoning.
+// statusOverride exists only for the "preview as draft" path below; normal
+// saves never pass one.
+function autoStatus() {
+  if (docType.value === "receipt") return "closed";
+  return existingDoc ? existingDoc.status : "open";
+}
+
+// buildDocObject is a PURE function — it reads the form and returns a plain
+// object, with no side effects on DB. Preview needs exactly this: a look at
+// what the document WOULD be, without it existing anywhere yet. Only
+// saveDoc() (below) actually persists anything.
+function buildDocObject(statusOverride) {
+  return {
+    id: existingDoc ? existingDoc.id : uid("doc"),
+    docType: docType.value,
+    docNumber: docNumber.value,
+    issueDate: issueDate.value,
+    workSubject: document.getElementById("workSubject").value,
+    clientId: clientSelect.value || null,
+    clientName: clientName.value,
+    clientAddress: clientAddress.value,
+    items: items.filter(it => it.desc || it.qty || it.price),
+    includeVat: document.getElementById("includeVat").checked,
+    status: statusOverride || autoStatus(),
+    payments: docType.value === "receipt" ? payments : [],
+    noteBody: document.getElementById("noteBody").value,
+    isCanceled: existingDoc ? existingDoc.isCanceled : false,
+    createdAt: existingDoc ? existingDoc.createdAt : new Date().toISOString(),
+  };
+}
+
+function saveDoc(doc, isNew) {
+  DB.upsertDocument(doc);
+  if (isNew) DB.bumpDocNumber(doc.docType, doc.docNumber);
+  return doc;
+}
+
+document.getElementById("docForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (isDuplicateDocNumber()) {
+    alert(`כבר קיים מסמך מסוג ${DOC_TYPES[docType.value].label} עם מספר ${docNumber.value}. שנה את מספר המסמך ונסה שוב.`);
+    return;
+  }
+  const doc = saveDoc(buildDocObject(), !existingDoc);
+  sessionStorage.removeItem("flowcrm_preview_doc");
+  toast("המסמך נשמר");
+  location.href = "view.html?id=" + doc.id;
+});
+
+// "תצוגה מקדימה" must NOT save anything — a draft you're only looking at
+// shouldn't clutter the real documents list if you never actually hit
+// "שמור מסמך". The doc is handed to view.html through sessionStorage
+// instead of localStorage, tagged as a preview; view.html only writes it
+// for real if you explicitly save from there (see the preview banner and
+// the "back to documents" confirmation logic in view.html).
+document.getElementById("previewBtn").addEventListener("click", () => {
+  if (isDuplicateDocNumber()) {
+    alert(`כבר קיים מסמך מסוג ${DOC_TYPES[docType.value].label} עם מספר ${docNumber.value}. שנה את מספר המסמך ונסה שוב.`);
+    return;
+  }
+  // Receipts are always "closed" (see autoStatus) — the draft concept only
+  // makes sense for invoice/quote, which aren't a completed transaction yet.
+  const doc = buildDocObject(existingDoc ? existingDoc.status : (docType.value === "receipt" ? "closed" : "draft"));
+  sessionStorage.setItem("flowcrm_preview_doc", JSON.stringify({ doc, isNew: !existingDoc }));
+  location.href = "view.html?preview=1";
+});
+</script>
+</body>
+</html>

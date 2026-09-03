@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>תצוגת מסמך - FlowCRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1e3a5f">
+</head>
+<body>
+<div class="app-shell">
+  <div class="main" style="max-width:900px;">
+    <div class="no-print" id="previewBanner" style="display:none;background:#fef3c7;color:#92400e;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;font-weight:600;">
+      📝 זוהי תצוגה מקדימה — המסמך עדיין לא נשמר. הוא יישמר רק אם תלחצו "שמור מסמך".
+    </div>
+
+    <div class="btn-row no-print" style="margin-bottom:16px;">
+      <button class="btn btn-primary" id="printBtn">🖨 הדפסה</button>
+      <button class="btn btn-primary" id="savePdfBtn">⬇ שמור כ-PDF</button>
+      <button class="btn btn-success" id="saveDocBtn" style="display:none;">💾 שמור מסמך</button>
+      <div class="dropdown-wrap" id="closeWithWrap" style="display:none;">
+        <button type="button" class="btn btn-success" id="closeWithBtn">✓ סגור עם...</button>
+        <div class="dropdown-menu" id="closeWithMenu"></div>
+      </div>
+      <button class="btn" id="editBtn">✏ עריכה</button>
+      <button class="btn" id="shareBtn">📤 שתף</button>
+      <a href="documents.html" class="btn btn-ghost" id="backToDocsLink">← חזרה למסמכים</a>
+    </div>
+
+    <div class="print-page" id="printPage" style="position:relative;">
+      <div class="watermark" id="watermark" style="display:none;">מבוטל</div>
+
+      <div class="print-header">
+        <div class="biz-details" id="bizDetails"></div>
+        <div id="bizLogoWrap"></div>
+      </div>
+
+      <div class="print-meta">
+        <div class="to">לכבוד: <b id="metaClient"></b></div>
+        <!-- Date/note/stamp share ONE column (not three separate flex
+             siblings) so they always sit together as a unit, stamp directly
+             below the date text. A previous version made the stamp a 3rd
+             flex sibling so justify-content:space-between would push it to
+             the page's true left edge — but with only 3 items, space-between
+             splits the leftover width around the MIDDLE item too, so the
+             date text's position (and the gap between it and the stamp)
+             shifted depending on how long the client name was — on a short
+             name this drifted enough to look like the whole block "moved".
+             Back to 2 flex items (לכבוד + this column) is what makes the
+             layout deterministic again: this column always sits flush at
+             the true left edge regardless of the client-name length, and
+             the stamp stays glued to the date/note text inside it. -->
+        <div style="text-align:left;">
+          <div>תאריך <span id="metaDate"></span></div>
+          <div style="color:#666;">מסמך ממוחשב, חתום דיגיטלית</div>
+          <img class="print-stamp" src="stamp.png" alt="מסמך מאומת - חתום דיגיטלית">
+        </div>
+      </div>
+
+      <div class="print-title" id="docTitle"></div>
+      <div class="print-subtitle" id="docSubject"></div>
+
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px;">פריטים:</div>
+      <table class="print-table">
+        <thead>
+          <tr><th>פירוט</th><th>כמות</th><th>מחיר</th><th>סכום</th></tr>
+        </thead>
+        <tbody id="itemsRows"></tbody>
+      </table>
+
+      <div class="print-totals">
+        <div class="row"><span>סה"כ חייב במע"מ:</span><span id="pSubtotal"></span></div>
+        <div class="row"><span>מע"מ (<span id="pVatRate"></span>%):</span><span id="pVat"></span></div>
+        <div class="row total"><span>סה"כ:</span><span id="pTotal"></span></div>
+      </div>
+
+      <div class="print-payment" id="paymentBlock" style="display:none;">
+        <div style="font-weight:600;">פרטי תשלום:</div>
+        <table>
+          <thead><tr><th>תאריך</th><th>אמצעי תשלום</th><th>פרטים</th><th>סכום</th></tr></thead>
+          <tbody id="paymentRows"></tbody>
+        </table>
+      </div>
+
+      <div class="print-note" id="noteBlock" style="display:none;">
+        <div style="font-weight:600;">הערה מצורפת:</div>
+        <div id="noteText"></div>
+      </div>
+
+      <!-- This is the footer TEMPLATE. Both the 🖨 הדפסה and ⬇ שמור כ-PDF
+           buttons reflow the document into #paginatedOutput below before
+           doing anything else (see pdf-export.js) — that reflow clones
+           this element onto the bottom of every generated page, pinned
+           there with plain flexbox. This original copy is only ever
+           seen directly if JS fails and printBtn falls back to a bare
+           window.print() (see the print-page fallback rules in
+           style.css). -->
+      <div class="print-footer" id="printFooter">
+        <div class="print-footer-brand">
+          <div class="footer-caption">הופק על ידי</div>
+          <img class="footer-logo" src="logo-full.png" alt="FlowCRM">
+        </div>
+      </div>
+    </div>
+
+    <!-- Built fresh by Paginate.build() every time the document is
+         printed or exported — a sequence of .printed-page boxes, each a
+         real page with its own forced break and its own footer. Empty
+         and hidden the rest of the time. -->
+    <div id="paginatedOutput"></div>
+  </div>
+</div>
+
+<script src="html2canvas.min.js"></script>
+<script src="jspdf.umd.min.js"></script>
+<script src="pdf-export.js"></script>
+<script src="app.js"></script>
+<script src="drive-sync.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+// Preview mode: the doc came from create.html's "תצוגה מקדימה" button and
+// was NEVER written to DB — it's sitting in sessionStorage instead,
+// specifically so that just looking at a draft doesn't quietly create (or
+// overwrite) a real saved document. isPreview + previewIsNew stay in scope
+// for the save/discard logic further down.
+const isPreview = params.get("preview") === "1";
+let previewIsNew = false;
+let doc;
+if (isPreview) {
+  let raw = null;
+  try { raw = JSON.parse(sessionStorage.getItem("flowcrm_preview_doc") || "null"); } catch (e) {}
+  if (!raw || !raw.doc) {
+    document.body.innerHTML = "<p style='padding:40px;text-align:center'>אין תצוגה מקדימה זמינה (אולי רועננה הדף). <a href='documents.html'>חזרה לרשימה</a></p>";
+    throw new Error("no preview doc");
+  }
+  doc = raw.doc;
+  previewIsNew = !!raw.isNew;
+} else {
+  doc = DB.getDocument(params.get("id"));
+  if (!doc) {
+    document.body.innerHTML = "<p style='padding:40px;text-align:center'>המסמך לא נמצא. <a href='documents.html'>חזרה לרשימה</a></p>";
+    throw new Error("doc not found");
+  }
+}
+const settings = DB.getSettings();
+
+document.getElementById("bizLogoWrap").innerHTML =
+  `<img class="biz-logo" src="${settings.companyLogo || "company-logo-default.png"}" alt="${settings.companyName}">`;
+document.getElementById("bizDetails").innerHTML = `
+  ${settings.companyTagline}<br>
+  ${settings.companyDealerType} ת.ז.: ${settings.companyTaxId}<br>
+  ${settings.companyAddress}<br>
+  טל: ${settings.companyPhone}`;
+
+document.getElementById("metaClient").textContent = doc.clientName;
+document.getElementById("metaDate").textContent = formatDateHe(doc.issueDate);
+document.getElementById("docTitle").textContent = `${DOC_TYPES[doc.docType].label} מספר ${doc.docNumber}`;
+document.getElementById("docSubject").textContent = doc.workSubject || "";
+// Chrome's print dialog prints document.title (+ today's date) as its own
+// header, and the page URL as its own footer, ON TOP of our layout — that's
+// the extra title/date/link the browser adds, not something this page
+// renders. Give it a clean title either way; the "Headers and footers"
+// toggle in the print dialog's "More settings" turns that browser add-on off.
+document.title = `${DOC_TYPES[doc.docType].label} ${doc.docNumber} - ${settings.companyName}`;
+
+const rowsHtml = doc.items.map(it => `
+  <tr>
+    <td>${it.desc}</td>
+    <td>${it.qty}</td>
+    <td>${money(it.price)}</td>
+    <td>${money(calcLineTotal(it))}</td>
+  </tr>`).join("");
+document.getElementById("itemsRows").innerHTML = rowsHtml || `<tr><td colspan="4" style="text-align:center;color:#999;">אין פריטים</td></tr>`;
+
+const subtotal = calcSubtotal(doc.items);
+const tax = calcTax(subtotal, doc.includeVat, settings.vatRate);
+const total = calcTotal(subtotal, tax);
+document.getElementById("pSubtotal").textContent = money(subtotal);
+document.getElementById("pVatRate").textContent = doc.includeVat ? settings.vatRate : "0";
+document.getElementById("pVat").textContent = money(tax);
+document.getElementById("pTotal").textContent = money(total);
+
+if (doc.docType === "receipt" && doc.payments && doc.payments.length) {
+  document.getElementById("paymentBlock").style.display = "";
+  document.getElementById("paymentRows").innerHTML = doc.payments.map(p => `
+    <tr>
+      <td>${formatDateHe(p.date)}</td>
+      <td>${p.method}</td>
+      <td>${formatPaymentFields(p.method, p.fields) || "-"}</td>
+      <td>${money(p.amount || 0)}</td>
+    </tr>`).join("");
+}
+if (doc.noteBody) {
+  document.getElementById("noteBlock").style.display = "";
+  document.getElementById("noteText").textContent = doc.noteBody;
+}
+if (doc.isCanceled) {
+  document.getElementById("watermark").style.display = "block";
+}
+
+document.getElementById("printBtn").addEventListener("click", async () => {
+  try {
+    await PdfExport.printDocument(
+      document.getElementById("printPage"),
+      document.getElementById("printFooter")
+    );
+  } catch (e) {
+    // Fall back to a plain print if the pagination JS itself failed for
+    // some reason — worse footer placement, but still a working print.
+    window.print();
+  }
+});
+
+document.getElementById("savePdfBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("savePdfBtn");
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "⏳ מכין PDF...";
+  try {
+    await PdfExport.exportAndSave({
+      pageEl: document.getElementById("printPage"),
+      footerEl: document.getElementById("printFooter"),
+      // ASCII-only filename on purpose: Chromium's headless download
+      // interception (confirmed via Playwright, even for a plain
+      // server Content-Disposition header) reports Hebrew/mixed-script
+      // download filenames as the generic "download" instead of the
+      // real name. Couldn't confirm whether that also happens in a
+      // real interactive browser, so this sidesteps the risk entirely
+      // — the PDF's on-page content/title stays Hebrew, only the
+      // saved file's name is Latin/numeric.
+      filename: `${doc.docType}-${doc.docNumber}.pdf`,
+    });
+  } catch (e) {
+    alert("שגיאה ביצירת ה-PDF: " + (e && e.message ? e.message : e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+});
+
+/* ---- Preview mode: nothing has been saved yet. "עריכה" goes back to the
+   create form via browser history (not a fresh create.html?id=... load —
+   there's no real id to load, this draft doesn't exist in DB) so whatever
+   was typed is still there; "שמור מסמך" commits it for real; leaving via
+   "חזרה למסמכים" asks first instead of silently discarding the draft. */
+function persistPreviewDoc() {
+  DB.upsertDocument(doc);
+  if (previewIsNew) DB.bumpDocNumber(doc.docType, doc.docNumber);
+  sessionStorage.removeItem("flowcrm_preview_doc");
+}
+if (isPreview) {
+  document.getElementById("previewBanner").style.display = "";
+  document.getElementById("saveDocBtn").style.display = "";
+  document.getElementById("editBtn").addEventListener("click", () => history.back());
+  document.getElementById("saveDocBtn").addEventListener("click", () => {
+    persistPreviewDoc();
+    toast("המסמך נשמר");
+    location.href = "view.html?id=" + doc.id;
+  });
+  document.getElementById("backToDocsLink").addEventListener("click", (e) => {
+    e.preventDefault();
+    const wantsSave = confirm('המסמך הזה עדיין לא נשמר.\n\nאישור = שמירה ומעבר לרשימת המסמכים\nביטול = הישארות כאן (המסמך עדיין לא יישמר)');
+    if (wantsSave) {
+      persistPreviewDoc();
+      location.href = "documents.html";
+    }
+    // Cancel: stay right here — nothing saved, nothing lost either.
+  });
+} else {
+  document.getElementById("editBtn").addEventListener("click", () => location.href = "create.html?id=" + doc.id);
+}
+
+/* ---- "סגור עם..." — convert a quote into an invoice/receipt, or an
+   invoice into a receipt. Cancelling/changing status is admin-only now
+   (documents.html), so this is the only status-affecting action left here.
+   Doesn't apply to an unsaved preview — there's nothing to convert yet. */
+const CLOSE_WITH_OPTIONS = {
+  quote: ["invoice", "receipt"],
+  invoice: ["receipt"],
+};
+const closeOptions = !isPreview && !doc.isCanceled && doc.status !== "closed" ? (CLOSE_WITH_OPTIONS[doc.docType] || []) : [];
+if (closeOptions.length) {
+  const wrap = document.getElementById("closeWithWrap");
+  const menu = document.getElementById("closeWithMenu");
+  wrap.style.display = "";
+  menu.innerHTML = closeOptions.map(t => `<button type="button" data-t="${t}">${DOC_TYPES[t].label}</button>`).join("");
+  document.getElementById("closeWithBtn").addEventListener("click", () => menu.classList.toggle("open"));
+  document.addEventListener("click", (e) => { if (!wrap.contains(e.target)) menu.classList.remove("open"); });
+  menu.querySelectorAll("[data-t]").forEach(btn => btn.addEventListener("click", () => {
+    const targetType = btn.dataset.t;
+    if (!confirm(`ייווצר מסמך "${DOC_TYPES[targetType].label}" חדש עם אותם פרטי לקוח ופריטים, והמסמך הנוכחי (${DOC_TYPES[doc.docType].label}) יסומן כסגור. להמשיך?`)) return;
+    const newDoc = {
+      id: uid("doc"),
+      docType: targetType,
+      docNumber: DB.nextDocNumber(targetType),
+      issueDate: new Date().toISOString().slice(0, 10),
+      workSubject: doc.workSubject || "",
+      clientId: doc.clientId || null,
+      clientName: doc.clientName || "",
+      clientAddress: doc.clientAddress || "",
+      items: doc.items || [],
+      includeVat: !!doc.includeVat,
+      status: "open",
+      payments: [],
+      noteBody: doc.noteBody || "",
+      isCanceled: false,
+      convertedFrom: { id: doc.id, docType: doc.docType, docNumber: doc.docNumber },
+      createdAt: new Date().toISOString(),
+    };
+    DB.upsertDocument(newDoc);
+    DB.bumpDocNumber(targetType);
+    doc.status = "closed";
+    doc.convertedTo = { id: newDoc.id, docType: newDoc.docType, docNumber: newDoc.docNumber };
+    DB.upsertDocument(doc);
+    location.href = "create.html?id=" + newDoc.id;
+  }));
+}
+
+document.getElementById("shareBtn").addEventListener("click", async () => {
+  const text = `${DOC_TYPES[doc.docType].label} מספר ${doc.docNumber} עבור ${doc.clientName} - סה"כ ${money(total)}`;
+  if (navigator.share) {
+    try { await navigator.share({ title: document.title, text }); } catch (e) {}
+  } else {
+    window.location.href = "https://wa.me/?text=" + encodeURIComponent(text);
+  }
+});
+</script>
+</body>
+</html>
