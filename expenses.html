@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>הוצאות - FlowCRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1e3a5f">
+</head>
+<body>
+<div class="app-shell">
+  <div class="main">
+    <h1 class="page-title">הוצאות</h1>
+    <p class="page-subtitle" id="countLabel">ניהול ומעקב אחר הוצאות העסק</p>
+
+    <div class="btn-row" style="margin-bottom:14px;">
+      <button class="btn btn-primary" id="newExpenseBtn">+ הוצאה חדשה</button>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>קטגוריה</label><select id="categoryFilter"><option value="">כל הקטגוריות</option></select></div>
+      <div class="field" style="flex:2;"><label>חיפוש</label><input type="text" id="search" placeholder="חיפוש לפי ספק או תיאור..."></div>
+    </div>
+
+    <div id="list"></div>
+  </div>
+</div>
+
+<!-- edit dialog -->
+<div id="dialogBg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:60;align-items:center;justify-content:center;">
+  <div class="card" style="width:92%;max-width:480px;max-height:88vh;overflow:auto;">
+    <div class="section-bar" id="dialogTitle">הוצאה חדשה</div>
+    <div class="section-body">
+      <div class="field-row">
+        <div class="field"><label>תאריך</label><input type="date" id="fDate"></div>
+        <div class="field"><label>סכום</label><input type="number" min="0" step="0.01" id="fAmount"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>ספק</label><input id="fSupplier" placeholder="שם הספק / העסק"></div>
+        <div class="field">
+          <label>קטגוריה</label>
+          <input id="fCategory" list="categorySuggestions" placeholder="לדוגמה: ציוד, דלק, ביטוח">
+          <datalist id="categorySuggestions"></datalist>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field" style="flex-basis:100%"><label>תיאור</label><input id="fDescription" placeholder="פירוט ההוצאה"></div>
+      </div>
+      <div class="field-row">
+        <div class="field" style="flex-basis:100%">
+          <label>קבלה (תמונה או PDF)</label>
+          <input type="file" id="fReceipt" accept="image/*,application/pdf">
+          <div id="receiptPreview" style="margin-top:8px;"></div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="saveExpenseBtn">שמירה</button>
+        <button class="btn" id="closeDialogBtn">ביטול</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="drive-sync.js"></script>
+<script>
+mountShell("expenses.html");
+let editingId = null;
+let query = "";
+let categoryFilter = "";
+let pendingReceipt = null; // {dataUrl, mime, name} | undefined(no change) | null(removed)
+
+function allCategories() {
+  return [...new Set(DB.getExpenses().map(e => e.category).filter(Boolean))].sort();
+}
+
+function refreshCategoryFilterOptions() {
+  const sel = document.getElementById("categoryFilter");
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">כל הקטגוריות</option>` + allCategories().map(c => `<option value="${c}">${c}</option>`).join("");
+  sel.value = cur;
+  document.getElementById("categorySuggestions").innerHTML = allCategories().map(c => `<option value="${c}">`).join("");
+}
+
+function receiptIcon(exp) {
+  if (!exp.receiptData) return `<span>🧾</span>`;
+  if ((exp.receiptMime || "").startsWith("image/")) return `<img src="${exp.receiptData}" alt="קבלה">`;
+  return `<span>📄</span>`;
+}
+
+function render() {
+  let expenses = [...DB.getExpenses()].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  document.getElementById("countLabel").textContent = `מציג ${expenses.length} הוצאות`;
+  if (categoryFilter) expenses = expenses.filter(e => e.category === categoryFilter);
+  if (query) {
+    const q = query.toLowerCase();
+    expenses = expenses.filter(e => (e.supplier || "").toLowerCase().includes(q) || (e.description || "").toLowerCase().includes(q));
+  }
+  const list = document.getElementById("list");
+  if (!expenses.length) {
+    list.innerHTML = `<div class="empty-state">אין הוצאות תואמות.</div>`;
+    return;
+  }
+  list.innerHTML = expenses.map(e => `
+    <div class="expense-card">
+      <div class="thumb">${receiptIcon(e)}</div>
+      <div class="body">
+        <div class="amount">${money(e.amount || 0)}</div>
+        <div class="supplier">${e.supplier || "(ללא ספק)"}</div>
+        <div class="meta">
+          ${e.category ? `<span class="category-pill">${e.category}</span>` : ""}
+          ${formatDateHe(e.date)}${e.description ? " · " + e.description : ""}
+        </div>
+      </div>
+      <div class="actions">
+        ${e.receiptData ? `<button class="icon-btn" data-view="${e.id}">👁</button>` : ""}
+        <button class="icon-btn" data-edit="${e.id}">✏</button>
+        <button class="icon-btn danger" data-del="${e.id}">🗑</button>
+      </div>
+    </div>`).join("");
+
+  list.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => {
+    const exp = DB.getExpense(b.dataset.view);
+    const w = window.open();
+    if (w) w.location.href = exp.receiptData;
+  }));
+  list.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => openDialog(b.dataset.edit)));
+  list.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => {
+    if (!confirm("למחוק הוצאה זו?")) return;
+    DB.deleteExpense(b.dataset.del);
+    refreshCategoryFilterOptions();
+    render();
+  }));
+}
+
+function openDialog(id) {
+  editingId = id || null;
+  pendingReceipt = undefined;
+  pendingReceiptPromise = null;
+  const e = id ? DB.getExpense(id) : {};
+  document.getElementById("dialogTitle").textContent = id ? "עריכת הוצאה" : "הוצאה חדשה";
+  document.getElementById("fDate").value = e.date || new Date().toISOString().slice(0, 10);
+  document.getElementById("fAmount").value = e.amount || "";
+  document.getElementById("fSupplier").value = e.supplier || "";
+  document.getElementById("fCategory").value = e.category || "";
+  document.getElementById("fDescription").value = e.description || "";
+  document.getElementById("fReceipt").value = "";
+  renderReceiptPreview(e.receiptData);
+  document.getElementById("dialogBg").style.display = "flex";
+}
+function closeDialog() { document.getElementById("dialogBg").style.display = "none"; }
+
+function renderReceiptPreview(dataUrl) {
+  const box = document.getElementById("receiptPreview");
+  if (!dataUrl) { box.innerHTML = ""; return; }
+  box.innerHTML = `<div class="logo-preview" style="width:70px;height:70px;">${
+    dataUrl.startsWith("data:image") ? `<img src="${dataUrl}">` : "📄 PDF"
+  }</div><button type="button" class="btn" id="clearReceiptBtn" style="margin-top:6px;">הסרת קבלה</button>`;
+  const clearBtn = document.getElementById("clearReceiptBtn");
+  if (clearBtn) clearBtn.addEventListener("click", () => { pendingReceipt = null; pendingReceiptPromise = null; renderReceiptPreview(null); });
+}
+
+// pendingReceiptPromise (not just pendingReceipt) is what Save actually
+// waits on. Processing a file — especially a multi-MB PDF, which unlike an
+// uploaded image isn't resized/recompressed — takes a moment. The old code
+// set pendingReceipt only once that finished, so clicking "שמירה" quickly
+// after picking a file could save with no receipt attached at all: this
+// is the most likely reason a receipt "didn't stay". Storing the promise
+// immediately and awaiting it in the save handler closes that gap
+// regardless of how fast you click.
+let pendingReceiptPromise = null;
+const MAX_RECEIPT_BYTES = 8 * 1024 * 1024; // 8MB raw file — see quota note below
+
+document.getElementById("fReceipt").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > MAX_RECEIPT_BYTES) {
+    alert("הקובץ גדול מדי (מעל 8MB). כל הנתונים נשמרים בדפדפן עצמו, שיש לו מקום מוגבל — נסו לצלם/לסרוק ברזולוציה נמוכה יותר, או לכווץ את ה-PDF.");
+    e.target.value = "";
+    pendingReceiptPromise = null;
+    return;
+  }
+  document.getElementById("receiptPreview").innerHTML = `<span style="color:var(--text-muted);font-size:12px;">מעבד קובץ...</span>`;
+  pendingReceiptPromise = fileToStoredDataURL(file, 1400, 0.8);
+  pendingReceiptPromise.then(result => {
+    pendingReceipt = result;
+    renderReceiptPreview(result.dataUrl);
+  }).catch(() => {
+    alert("שגיאה בעיבוד קובץ הקבלה — נסו קובץ אחר.");
+    pendingReceiptPromise = null;
+  });
+});
+
+document.getElementById("newExpenseBtn").addEventListener("click", () => openDialog(null));
+document.getElementById("closeDialogBtn").addEventListener("click", closeDialog);
+document.getElementById("saveExpenseBtn").addEventListener("click", async () => {
+  const saveBtn = document.getElementById("saveExpenseBtn");
+  saveBtn.disabled = true;
+  saveBtn.textContent = "שומר...";
+  try {
+    const amount = parseFloat(document.getElementById("fAmount").value) || 0;
+    const existing = editingId ? DB.getExpense(editingId) : {};
+    let receiptData = existing.receiptData || null;
+    let receiptMime = existing.receiptMime || null;
+    if (pendingReceiptPromise) {
+      // Always wait for the file to finish processing before saving,
+      // however recently it was selected.
+      const result = await pendingReceiptPromise;
+      receiptData = result.dataUrl;
+      receiptMime = result.mime;
+    } else if (pendingReceipt === null) {
+      receiptData = null; receiptMime = null;
+    }
+
+    const expense = {
+      id: editingId || uid("exp"),
+      date: document.getElementById("fDate").value,
+      amount,
+      supplier: document.getElementById("fSupplier").value,
+      category: document.getElementById("fCategory").value,
+      description: document.getElementById("fDescription").value,
+      receiptData,
+      receiptMime,
+      createdAt: existing.createdAt || new Date().toISOString(),
+    };
+    DB.upsertExpense(expense);
+    closeDialog();
+    refreshCategoryFilterOptions();
+    render();
+    toast("ההוצאה נשמרה");
+  } catch (err) {
+    // Most likely cause: the browser's storage quota for this site is
+    // full (all data — documents, clients, receipts, everything — shares
+    // one small pool, typically 5-10MB). Earlier this failed completely
+    // silently, which is very likely the actual "receipt doesn't stay"
+    // bug — the save was throwing and nothing downstream of it ran, but
+    // nothing told you that.
+    if (err && (err.name === "QuotaExceededError" || /quota/i.test(err.message || ""))) {
+      alert("אין מקום פנוי לשמור את הקבלה בדפדפן (המכסה המקומית מלאה). נסו קובץ קטן יותר, או מחקו קבלות ישנות שאינן נחוצות.");
+    } else {
+      alert("שמירת ההוצאה נכשלה: " + (err && err.message ? err.message : err));
+    }
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = "שמירה";
+  }
+});
+
+document.getElementById("categoryFilter").addEventListener("change", (e) => { categoryFilter = e.target.value; render(); });
+document.getElementById("search").addEventListener("input", (e) => { query = e.target.value; render(); });
+
+refreshCategoryFilterOptions();
+render();
+</script>
+</body>
+</html>
