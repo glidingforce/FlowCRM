@@ -93,10 +93,14 @@
         <div id="noteText"></div>
       </div>
 
-      <!-- Prints in normal document flow after the content (see style.css
-           for why a fixed/repeating-per-page footer was tried and reverted
-           after it broke on Safari/iOS). -->
-      <div class="print-footer">
+      <!-- In normal browser printing (the 🖨 הדפסה button, or an OS-level
+           "print to PDF") this sits in normal document flow after the
+           content — see style.css for why a fixed/repeating-per-page
+           footer was tried and reverted after it broke on Safari/iOS.
+           The ⬇ שמור כ-PDF button does NOT use browser printing at all —
+           see pdf-export.js — so this same element also serves as the
+           per-page footer template that JS renderer draws on every page. -->
+      <div class="print-footer" id="printFooter">
         <div class="print-footer-brand">
           <div class="footer-caption">הופק על ידי</div>
           <img class="footer-logo" src="logo-full.png" alt="FlowCRM">
@@ -106,6 +110,9 @@
   </div>
 </div>
 
+<script src="html2canvas.min.js"></script>
+<script src="jspdf.umd.min.js"></script>
+<script src="pdf-export.js"></script>
 <script src="app.js"></script>
 <script src="drive-sync.js"></script>
 <script>
@@ -191,7 +198,25 @@ if (doc.isCanceled) {
 }
 
 document.getElementById("printBtn").addEventListener("click", () => window.print());
-document.getElementById("savePdfBtn").addEventListener("click", () => window.print());
+
+document.getElementById("savePdfBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("savePdfBtn");
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "⏳ מכין PDF...";
+  try {
+    await PdfExport.exportAndSave({
+      pageEl: document.getElementById("printPage"),
+      footerEl: document.getElementById("printFooter"),
+      filename: `${document.title}.pdf`,
+    });
+  } catch (e) {
+    alert("שגיאה ביצירת ה-PDF: " + (e && e.message ? e.message : e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+});
 
 /* ---- Preview mode: nothing has been saved yet. "עריכה" goes back to the
    create form via browser history (not a fresh create.html?id=... load —

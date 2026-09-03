@@ -35,7 +35,8 @@
   <div class="main" style="max-width:900px;">
     <div class="btn-row no-print" style="justify-content:space-between;margin-bottom:16px;">
       <div class="btn-row" style="margin:0;">
-        <button class="btn btn-primary" id="printBtn">🖨 הדפס / שמור PDF</button>
+        <button class="btn btn-primary" id="printBtn">🖨 הדפסה</button>
+        <button class="btn btn-primary" id="savePdfBtn">⬇ שמור כ-PDF</button>
       </div>
       <div class="field" style="max-width:140px;">
         <select id="yearSelect"></select>
@@ -87,9 +88,11 @@
         <div class="row total"><span>רווח נקי</span><span id="concNet"></span></div>
       </div>
 
-      <!-- Prints in normal document flow after the content (see style.css
-           for why a fixed/repeating-per-page footer was tried and reverted). -->
-      <div class="print-footer">
+      <!-- In normal browser printing this sits in normal document flow
+           after the content (see style.css). The ⬇ הדפס/שמור PDF button
+           uses pdf-export.js instead, which also reuses this element as
+           the per-page footer template drawn on every page. -->
+      <div class="print-footer" id="printFooter">
         <div class="print-footer-brand">
           <div class="footer-caption">הופק על ידי</div>
           <img class="footer-logo" src="logo-full.png" alt="FlowCRM">
@@ -99,6 +102,9 @@
   </div>
 </div>
 
+<script src="html2canvas.min.js"></script>
+<script src="jspdf.umd.min.js"></script>
+<script src="pdf-export.js"></script>
 <script src="app.js"></script>
 <script src="drive-sync.js"></script>
 <script>
@@ -175,6 +181,25 @@ function renderReport() {
 renderReport();
 
 document.getElementById("printBtn").addEventListener("click", () => window.print());
+
+document.getElementById("savePdfBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("savePdfBtn");
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "⏳ מכין PDF...";
+  try {
+    await PdfExport.exportAndSave({
+      pageEl: document.getElementById("printPage"),
+      footerEl: document.getElementById("printFooter"),
+      filename: `${document.getElementById("reportTitle").textContent} - ${settings.companyName}.pdf`,
+    });
+  } catch (e) {
+    alert("שגיאה ביצירת ה-PDF: " + (e && e.message ? e.message : e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+});
 </script>
 </body>
 </html>
