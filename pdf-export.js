@@ -205,6 +205,16 @@ const Paginate = (() => {
   function waitForImages(root) {
     const imgs = Array.from(root.querySelectorAll("img"));
     return Promise.all(imgs.map(img => {
+      // img.decode() (not just checking .complete) is the point here: a
+      // freshly-cloned <img> node — even pointed at an already-cached
+      // URL — still has to go through an async decode step before the
+      // browser has actual pixels ready to paint. .complete can be true
+      // the instant the src is set, well before that decode finishes.
+      // Relying on .complete alone let window.print() run a beat before
+      // the cloned logo/stamp/footer images had anything to paint, so
+      // they printed as blank space — text and table borders don't need
+      // this async step, which is why only the images were missing.
+      if (img.decode) return img.decode().catch(() => {});
       if (img.complete && img.naturalWidth > 0) return Promise.resolve();
       return new Promise(resolve => {
         img.addEventListener("load", resolve, { once: true });
@@ -246,6 +256,13 @@ const Paginate = (() => {
     pages.forEach(pageItems => {
       outputEl.appendChild(buildPageElement(pageItems, footerEl, isWatermarkOn ? watermarkEl : null));
     });
+    // The images above are freshly-cloned nodes (cloneNode doesn't carry
+    // over "already decoded" state), and printDocument() calls
+    // window.print() right after build() resolves with no further delay
+    // — so this has to wait on THESE images, not just pageEl's originals
+    // waited on at the top of this function, or the print/PDF capture
+    // can run before they've actually decoded. See waitForImages().
+    await waitForImages(outputEl);
     return pages.length;
   }
 
@@ -296,7 +313,20 @@ const PdfExport = (() => {
       const pdf = new jsPDF({ unit: "mm", format: "a4" });
       const pageEls = Array.from(outputEl.querySelectorAll(".printed-page"));
       const widthMm = Paginate.A4_WIDTH_MM - Paginate.MARGIN_MM * 2;
-      const heightMm = (Paginate.CONTENT_HEIGHT_PX / Paginate.CONTENT_WIDTH_PX) * widthMm;
+      // Deliberately NOT (CONTENT_HEIGHT_PX / CONTENT_WIDTH_PX) * widthMm
+      // here. CONTENT_HEIGHT_PX is short on purpose (see the big comment
+      // on it in Paginate above) so the SAME pagination also fits on the
+      // shorter US-Letter page native print engines sometimes choose —
+      // but this export path builds the PDF page itself with jsPDF, so
+      // there is no engine paper-size guess to hedge against; the page
+      // really is exactly A4. Using the Letter-safe aspect ratio here
+      // just left a real, visible ~31mm dead gap under the footer on an
+      // actual A4 print of the saved PDF. Stretching the captured image
+      // to the true A4 usable height instead (a ~7.5% vertical stretch —
+      // not enough to look distorted) fills the page edge-to-edge with
+      // matching 12mm top/bottom margins and pins the footer to the real
+      // bottom of the page.
+      const heightMm = Paginate.A4_HEIGHT_MM - Paginate.MARGIN_MM * 2;
 
       for (let i = 0; i < pageEls.length; i++) {
         if (i > 0) pdf.addPage();
