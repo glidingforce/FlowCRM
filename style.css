@@ -532,6 +532,26 @@ table.data-table tfoot td { font-weight: 700; border-top: 2px solid var(--border
   body.printing-paginated .print-page { display: none !important; }
   body.printing-paginated #paginatedOutput,
   body.printing-paginated #paginatedOutput * { visibility: visible; }
+  /* Same "how tall should a page really be" tension as the heightMm
+     comment in pdf-export.js's buildPdf(), but on the OTHER export path.
+     Paginate builds every .printed-page at a forced inline height of
+     CONTENT_HEIGHT_PX (~254mm) — deliberately short, so the SAME box
+     also safely fits a print engine that silently defaults to US Letter
+     (shorter than A4) instead of honoring @page{size:A4}, which is a
+     real, confirmed thing (an iPhone did this earlier in this project).
+     That inline height is what decides how much content gets PACKED
+     onto each page — left untouched here, still Letter-safe. This rule
+     only overrides how tall the box actually PRINTS: stretched to a
+     true A4 page's full usable height, so the footer's margin-top:auto
+     lands at the real bottom margin instead of ~19mm short of it,
+     matching the saved-PDF path. Deliberate trade-off, chosen because
+     essentially all real-world printing here is on A4: if this is ever
+     printed from something that defaults to Letter instead, the taller
+     box will overflow that shorter page and spill onto an extra,
+     mostly-blank trailing page rather than just leaving a gap. */
+  body.printing-paginated .printed-page {
+    height: calc(297mm - 24mm) !important;
+  }
   .print-table, .print-payment table { page-break-inside: auto; }
   .print-table tr, .print-payment tr { page-break-inside: avoid; }
   .print-header, .print-meta, .print-title, .print-totals, .print-payment, .print-note, .print-footer { page-break-inside: avoid; }
