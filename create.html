@@ -189,13 +189,21 @@ document.getElementById("vatRateLabel").textContent = settings.vatRate;
 
 let items = [{ desc: "", qty: 1, price: 0 }];
 
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function renderItems() {
   const body = document.getElementById("itemsBody");
   body.innerHTML = "";
   items.forEach((it, i) => {
     const tr = document.createElement("tr");
+    // desc is a textarea (not a single-line input) so a line can carry its
+    // own sub-detail notes — "found sensor burned out", "replaced it",
+    // etc. — one per line, which the print view shows as smaller text
+    // under the main item name (see renderItemDesc() in view.html).
     tr.innerHTML = `
-      <td><input type="text" value="${it.desc.replace(/"/g,'&quot;')}" data-i="${i}" data-f="desc"></td>
+      <td><textarea rows="1" data-i="${i}" data-f="desc">${escapeHtml(it.desc)}</textarea></td>
       <td><input type="number" min="0" step="0.01" value="${it.qty}" data-i="${i}" data-f="qty"></td>
       <td><input type="number" min="0" step="0.01" value="${it.price}" data-i="${i}" data-f="price"></td>
       <td class="line-total">${money(calcLineTotal(it))}</td>
@@ -204,13 +212,25 @@ function renderItems() {
   });
   // IMPORTANT: on "input" we only patch the data model + this row's own total
   // cell — never call renderItems() here. Rebuilding the whole <tbody> on
-  // every keystroke replaces the focused <input> with a new DOM node, which
-  // is exactly what was throwing focus out after one character typed.
-  // renderItems() is only called on structural changes (add/delete a line).
-  body.querySelectorAll("input").forEach(inp => {
+  // every keystroke replaces the focused <input> (or now textarea) with a
+  // new DOM node, which is exactly what was throwing focus out after one
+  // character typed. renderItems() is only called on structural changes
+  // (add/delete a line).
+  body.querySelectorAll("textarea").forEach(ta => {
+    // Auto-grow instead of making people drag the resize handle to see a
+    // second line of their own note — not a correctness issue, just
+    // annoying UX to skip.
+    ta.style.height = "auto";
+    ta.style.height = ta.scrollHeight + "px";
+  });
+  body.querySelectorAll("input, textarea").forEach(inp => {
     inp.addEventListener("input", () => {
       const i = +inp.dataset.i, f = inp.dataset.f;
       items[i][f] = f === "desc" ? inp.value : parseFloat(inp.value) || 0;
+      if (inp.tagName === "TEXTAREA") {
+        inp.style.height = "auto";
+        inp.style.height = inp.scrollHeight + "px";
+      }
       inp.closest("tr").querySelector(".line-total").textContent = money(calcLineTotal(items[i]));
       recalc();
     });

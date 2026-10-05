@@ -253,7 +253,10 @@ table.items-table { width: 100%; border-collapse: collapse; }
 table.items-table th, table.items-table td { padding: 8px 6px; font-size: 13px; text-align: right; }
 table.items-table thead th { background: #eef2f7; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border); }
 table.items-table tbody td { border-bottom: 1px solid var(--border); }
-table.items-table input { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-family: inherit; }
+table.items-table input, table.items-table textarea {
+  width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-family: inherit;
+}
+table.items-table textarea { resize: vertical; min-height: 34px; line-height: 1.4; }
 .add-line-btn { margin-bottom: 12px; }
 
 .totals-box {
@@ -395,12 +398,18 @@ table.items-table input { width: 100%; border: 1px solid var(--border); border-r
 .print-header .biz-details { text-align: right; font-size: 12px; color: #333; line-height: 1.6; }
 .print-meta { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; font-size: 13px; }
 .print-meta .to b { font-size: 15px; }
+.print-meta .to #metaAddressRow { font-size: 12px; color: #555; margin-top: 2px; }
+.print-original-tag { color: #666; }
 .print-title { text-align: center; font-size: 20px; font-weight: 700; margin: 10px 0 2px; }
 .print-subtitle { text-align: center; font-size: 13px; color: #555; margin-bottom: 12px; }
 .print-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 10px; border: 1px solid #000; }
 .print-table th { background: #a7cae8; color: #000; padding: 7px 6px; text-align: center; font-weight: 700; border: 1px solid #000; }
 .print-table td { padding: 7px 6px; border: 1px solid #000; text-align: center; }
 .print-table td:first-child { text-align: right; }
+/* Sub-detail lines within an item's description (see renderItemDesc() in
+   view.html) — smaller and muted so they read as "notes under the item",
+   not additional items. */
+.print-table .item-desc-note { font-size: 10px; color: #777; margin-top: 2px; }
 .print-totals { margin-inline-start: auto; width: 260px; font-size: 13px; }
 .print-totals .row { display: flex; justify-content: space-between; padding: 3px 0; }
 .print-totals .row.total { font-weight: 800; font-size: 16px; border-top: 1px solid #999; padding-top: 6px; margin-top: 4px; }
@@ -409,12 +418,18 @@ table.items-table input { width: 100%; border: 1px solid var(--border); border-r
 .print-payment th { background: #a7cae8; color: #000; padding: 5px; font-size: 11px; font-weight: 700; text-align: center; border: 1px solid #000; }
 .print-payment td { padding: 5px; border: 1px solid #000; font-size: 11px; text-align: center; }
 .print-payment td:nth-child(3) { text-align: right; } /* פרטים — the wide details column */
-.print-footer { text-align: center; font-size: 10px; color: #999; margin-top: 30px; }
+.print-footer { position: relative; text-align: center; font-size: 10px; color: #999; margin-top: 30px; }
 .print-footer-brand {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; margin-top: 6px;
 }
 .print-footer-brand .footer-caption { font-size: 11px; font-weight: 700; color: #7a8699; }
 .print-footer-brand .footer-logo { height: 20px; width: auto; }
+/* Absolutely positioned on purpose: this has to add zero height to the
+   footer — filled in per generated page (idx/count) by
+   Paginate.buildPageElement() in pdf-export.js. Right edge, vertically
+   centered on the brand block next to it, matching where the "1/1" page
+   count sits on the invoice this layout was matched against. */
+.print-footer-page-num { position: absolute; top: 50%; right: 0; transform: translateY(-50%); font-size: 10px; color: #999; }
 .watermark {
   position: absolute; top: 40%; left: 50%; transform: translate(-50%,-50%) rotate(-25deg);
   font-size: 70px; color: rgba(192,57,43,0.25); font-weight: 800; pointer-events: none; z-index: 5;
@@ -519,7 +534,17 @@ table.data-table tfoot td { font-weight: 700; border-top: 2px solid var(--border
     position: static; border: none; box-shadow: none; margin: 0; padding: 0;
     width: 100%; max-width: 100%; font-size: 12px;
   }
-  .print-footer { position: static; margin-top: 16mm; }
+  /* :not(.printed-page-footer) matters: the JS-built per-page footers
+     (pdf-export.js) keep the original "print-footer" class on top of
+     their own "printed-page-footer" class, so without this exclusion
+     this fallback rule was ALSO winning (same specificity, later in the
+     cascade) against the base .print-footer { position:relative } rule
+     above during actual printing — which broke .print-footer-page-num's
+     positioning: with its containing block no longer .print-footer, it
+     fell back to .printed-page (the next positioned ancestor up) and
+     rendered the page number floating mid-page instead of in the
+     footer. Confirmed by direct measurement before this fix. */
+  .print-footer:not(.printed-page-footer) { position: static; margin-top: 16mm; }
   @page { size: A4; margin: 12mm; }
   .no-print { display: none !important; }
   /* Paginated print mode (see pdf-export.js / PdfExport.printDocument):

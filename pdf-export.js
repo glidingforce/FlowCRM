@@ -158,7 +158,7 @@ const Paginate = (() => {
     return pages.slice(0, MAX_PAGES);
   }
 
-  function buildPageElement(items, footerEl, watermarkEl) {
+  function buildPageElement(items, footerEl, watermarkEl, pageIndex, pageCount) {
     const page = document.createElement("div");
     page.className = "printed-page";
     page.style.width = CONTENT_WIDTH_PX + "px";
@@ -197,6 +197,8 @@ const Paginate = (() => {
       const footer = footerEl.cloneNode(true);
       footer.style.display = "";
       footer.classList.add("printed-page-footer");
+      const pageNumEl = footer.querySelector(".print-footer-page-num");
+      if (pageNumEl) pageNumEl.textContent = `${pageIndex}/${pageCount}`;
       page.appendChild(footer);
     }
     return page;
@@ -253,8 +255,8 @@ const Paginate = (() => {
     const pages = packPages(items, usableHeightPx);
 
     outputEl.innerHTML = "";
-    pages.forEach(pageItems => {
-      outputEl.appendChild(buildPageElement(pageItems, footerEl, isWatermarkOn ? watermarkEl : null));
+    pages.forEach((pageItems, idx) => {
+      outputEl.appendChild(buildPageElement(pageItems, footerEl, isWatermarkOn ? watermarkEl : null, idx + 1, pages.length));
     });
     // The images above are freshly-cloned nodes (cloneNode doesn't carry
     // over "already decoded" state), and printDocument() calls
