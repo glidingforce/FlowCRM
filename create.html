@@ -129,6 +129,37 @@
   </div>
 </div>
 
+<!-- check-photo confirm dialog — see openCheckConfirmDialog() below. Shown
+     after a photographed check is sent for recognition; nothing from it
+     is written into the document until "אישור ומילוי בקבלה" is clicked. -->
+<div id="checkDialogBg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:60;align-items:center;justify-content:center;">
+  <div class="card" style="width:92%;max-width:480px;max-height:88vh;overflow:auto;">
+    <div class="section-bar">אישור פרטי הצ'ק</div>
+    <div class="section-body">
+      <p id="checkDialogNote" style="font-size:12px;color:var(--text-muted);margin:0 0 10px;"></p>
+      <div class="field-row">
+        <div class="field" style="flex-basis:100%">
+          <label>בנק</label>
+          <select id="checkBankSelect"></select>
+          <input type="text" id="checkBankCustom" placeholder="שם הבנק" style="margin-top:6px;display:none;">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>סניף</label><input id="checkBranch"></div>
+        <div class="field"><label>מספר חשבון</label><input id="checkAccount"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>מספר צ'ק</label><input id="checkNumberField"></div>
+        <div class="field"><label>סכום</label><input id="checkAmount" type="number" min="0" step="0.01"></div>
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-primary" id="checkDialogOkBtn">אישור ומילוי בקבלה</button>
+        <button type="button" class="btn" id="checkDialogCancelBtn">ביטול</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="app.js"></script>
 <script src="drive-sync.js"></script>
 <script>
@@ -307,6 +338,16 @@ function renderPayments() {
       </div>`;
     }).join("");
     const methodOptions = PAYMENT_METHODS.map(m => `<option value="${m}" ${p.method === m ? "selected" : ""}>${m}</option>`).join("");
+    // "צלם צ'ק" only shows up for the check payment method — it reads the
+    // bank/branch/account/check-number/amount fields below from a photo via
+    // recognizeCheckPhoto() (app.js) and opens a confirm dialog before
+    // filling anything in. The photo itself is never kept (see app.js).
+    const checkPhotoHtml = p.method === "צ'ק בנקאי" ? `
+      <div class="field-row" style="align-items:center;">
+        <button type="button" class="btn" data-check-photo-btn="${i}">📷 צלם צ'ק לזיהוי אוטומטי</button>
+        <input type="file" accept="image/*" capture="environment" data-check-photo-input="${i}" style="display:none;">
+        <span style="font-size:12px;color:var(--text-muted);" data-check-photo-status="${i}"></span>
+      </div>` : "";
     const row = document.createElement("div");
     row.className = "payment-row";
     row.innerHTML = `
@@ -319,6 +360,7 @@ function renderPayments() {
         <div class="field"><label>אמצעי תשלום</label><select data-pi="${i}" data-pf="__method">${methodOptions}</select></div>
         <div class="field"><label>סכום</label><input type="number" min="0" step="0.01" value="${p.amount}" data-pi="${i}" data-pf="__amount"></div>
       </div>
+      ${checkPhotoHtml}
       ${fieldsHtml ? `<div class="field-row">${fieldsHtml}</div>` : ""}`;
     list.appendChild(row);
   });
@@ -353,7 +395,105 @@ function renderPayments() {
     payments.splice(+btn.dataset.pdel, 1);
     renderPayments();
   }));
+  list.querySelectorAll("[data-check-photo-btn]").forEach(btn => btn.addEventListener("click", () => {
+    list.querySelector(`[data-check-photo-input="${btn.dataset.checkPhotoBtn}"]`).click();
+  }));
+  list.querySelectorAll("[data-check-photo-input]").forEach(inp => inp.addEventListener("change", (e) => {
+    const i = +inp.dataset.checkPhotoInput;
+    const file = e.target.files[0];
+    e.target.value = ""; // never keep a reference to the file past this handler
+    if (file) handleCheckPhoto(i, file);
+  }));
 }
+
+/* ---- check-photo recognition: photo in, confirm dialog, fields out ----
+   The photo is held only in local variables for the few seconds this takes
+   — never assigned to `payments[i]`, never passed to DB.save*(), so it can
+   never end up in localStorage. See recognizeCheckPhoto() in app.js for
+   where it's sent and why, and the accuracy caveat. */
+let checkDialogTargetIndex = null;
+
+async function handleCheckPhoto(i, file) {
+  const statusEl = document.querySelector(`[data-check-photo-status="${i}"]`);
+  const btnEl = document.querySelector(`[data-check-photo-btn="${i}"]`);
+  if (statusEl) statusEl.textContent = "⏳ מזהה את הצ'ק...";
+  if (btnEl) btnEl.disabled = true;
+  try {
+    const { dataUrl, mime } = await fileToStoredDataURL(file, 1600, 0.85);
+    const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+    const result = await recognizeCheckPhoto(base64, mime);
+    openCheckConfirmDialog(i, result);
+    if (statusEl) statusEl.textContent = "";
+  } catch (err) {
+    if (statusEl) statusEl.textContent = "";
+    alert("זיהוי הצ'ק נכשל: " + (err && err.message ? err.message : err));
+  } finally {
+    if (btnEl) btnEl.disabled = false;
+  }
+}
+
+function openCheckConfirmDialog(i, result) {
+  checkDialogTargetIndex = i;
+  const bankVal = result.bank || "";
+  const isKnownBank = ISRAELI_BANKS.includes(bankVal);
+  const bankOptions = ISRAELI_BANKS.map(b =>
+    `<option value="${b}" ${bankVal === b ? "selected" : ""}>${b}</option>`).join("");
+  document.getElementById("checkBankSelect").innerHTML = `
+    <option value="">בחרו בנק...</option>
+    ${bankOptions}
+    <option value="__other" ${bankVal && !isKnownBank ? "selected" : ""}>אחר (הזנה ידנית)</option>`;
+  const customInput = document.getElementById("checkBankCustom");
+  if (bankVal && !isKnownBank) {
+    customInput.style.display = "";
+    customInput.value = bankVal;
+  } else {
+    customInput.style.display = "none";
+    customInput.value = "";
+  }
+  document.getElementById("checkBranch").value = result.branch || "";
+  document.getElementById("checkAccount").value = result.account || "";
+  document.getElementById("checkNumberField").value = result.checkNumber || "";
+  document.getElementById("checkAmount").value = result.amount != null ? result.amount : "";
+  document.getElementById("checkDialogNote").textContent =
+    "בדקו כל שדה מול הצ'ק עצמו לפני אישור — שדות שלא זוהו בביטחון הושארו ריקים.";
+  document.getElementById("checkDialogBg").style.display = "flex";
+}
+
+function closeCheckConfirmDialog() {
+  document.getElementById("checkDialogBg").style.display = "none";
+  checkDialogTargetIndex = null;
+}
+
+document.getElementById("checkBankSelect").addEventListener("change", (e) => {
+  const customInput = document.getElementById("checkBankCustom");
+  if (e.target.value === "__other") {
+    customInput.style.display = "";
+    customInput.focus();
+  } else {
+    customInput.style.display = "none";
+    customInput.value = "";
+  }
+});
+
+document.getElementById("checkDialogCancelBtn").addEventListener("click", closeCheckConfirmDialog);
+
+document.getElementById("checkDialogOkBtn").addEventListener("click", () => {
+  const i = checkDialogTargetIndex;
+  if (i == null || !payments[i]) { closeCheckConfirmDialog(); return; }
+  const bankSelect = document.getElementById("checkBankSelect");
+  const bank = bankSelect.value === "__other"
+    ? document.getElementById("checkBankCustom").value.trim()
+    : bankSelect.value;
+  payments[i].fields.bank = bank;
+  payments[i].fields.branch = document.getElementById("checkBranch").value.trim();
+  payments[i].fields.account = document.getElementById("checkAccount").value.trim();
+  payments[i].fields.checkNumber = document.getElementById("checkNumberField").value.trim();
+  const amountVal = parseFloat(document.getElementById("checkAmount").value);
+  if (!isNaN(amountVal)) payments[i].amount = amountVal;
+  closeCheckConfirmDialog();
+  renderPayments();
+  toast("פרטי הצ'ק מולאו בתשלום");
+});
 
 document.getElementById("addPaymentBtn").addEventListener("click", () => {
   payments.push(newPayment());

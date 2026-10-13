@@ -70,6 +70,37 @@
     </div>
 
     <div class="card">
+      <div class="section-bar">זיהוי צ'קים אוטומטי (אופציונלי)</div>
+      <div class="section-body">
+        <p style="font-size:13px;color:var(--text-muted);margin-top:0;">
+          מאפשר לצלם צ'ק בעת רישום תשלום (ביצירת קבלה / סגירת חשבונית עם קבלה) ולמלא אוטומטית בנק, סניף, חשבון, מספר צ'ק וסכום, עם חלון אישור לפני שהפרטים נכנסים למסמך. <b>התמונה עצמה לא נשמרת בשום מקום</b> — לא באחסון המקומי של האפליקציה ולא בשום שרת שלנו (אין לנו שרת).
+        </p>
+        <p style="font-size:13px;color:var(--text-muted);">
+          כדי שזה יעבוד, התמונה נשלחת פעם אחת ל-API של Anthropic (חברת Claude) לזיהוי, ואז נמחקת. זו הדרך היחידה באפליקציה שבה מידע עוזב את הדפדפן לצד שלישי (בשונה מסנכרון גוגל דרייב למעלה, שהולך לדרייב <i>שלכם</i>). לכן זה דורש מפתח API משלכם, ולכל צילום יש עלות קטנה (אגורות בודדות) שמחויבת ישירות בחשבון ה-API שלכם — לא ל-FlowCRM.
+        </p>
+        <p style="font-size:13px;color:var(--text-muted);">
+          <b>לגבי הדיוק:</b> שורת המספרים המודפסת בתחתית צ'ק ישראלי (קוד בנק/סניף/חשבון) כתובה בפונט מגנטי מיוחד (CMC-7) שלא תמיד ניתן לקרוא בביטחון, והסכום לעיתים כתוב בכתב יד. המערכת מוגדרת להחזיר שדה ריק כשהיא לא בטוחה, במקום לנחש — אבל חלון האישור שיופיע לכל צילום הוא לא פורמלי אלא הכרחי: בדקו ותקנו כל שדה לפני שמאשרים.
+        </p>
+        <div class="field-row">
+          <div class="field" style="flex-basis:100%;">
+            <label>מפתח API של Anthropic</label>
+            <input id="anthropicApiKey" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field" style="flex-basis:100%;">
+            <label>שם המודל</label>
+            <input id="anthropicModel" placeholder="claude-sonnet-4-5-20250929" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;">
+          שם המודל עשוי להתעדכן עם הזמן — אם מופיעה שגיאת "מודל לא נתמך", בדקו את שם המודל העדכני במסך ה-API Keys / Models בחשבון ה-Anthropic שלכם ועדכנו כאן.
+        </p>
+        <div class="btn-row"><button class="btn btn-primary" id="saveCheckOcrBtn">שמירת הגדרות זיהוי</button></div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="section-bar">סנכרון לגוגל דרייב</div>
       <div class="section-body">
         <p style="font-size:13px;color:var(--text-muted);margin-top:0;">
@@ -168,6 +199,18 @@ document.getElementById("vatRate").value = s.vatRate;
 document.getElementById("nextInvoiceNumber").value = s.nextInvoiceNumber;
 document.getElementById("nextReceiptNumber").value = s.nextReceiptNumber;
 document.getElementById("nextQuoteNumber").value = s.nextQuoteNumber;
+document.getElementById("anthropicApiKey").value = s.anthropicApiKey || "";
+document.getElementById("anthropicModel").value = s.anthropicModel || "claude-sonnet-4-5-20250929";
+
+document.getElementById("saveCheckOcrBtn").addEventListener("click", () => {
+  const updated = {
+    ...DB.getSettings(),
+    anthropicApiKey: document.getElementById("anthropicApiKey").value.trim(),
+    anthropicModel: document.getElementById("anthropicModel").value.trim() || "claude-sonnet-4-5-20250929",
+  };
+  DB.saveSettings(updated);
+  toast("הגדרות הזיהוי נשמרו");
+});
 
 document.getElementById("saveBtn").addEventListener("click", () => {
   const updated = {

@@ -134,6 +134,12 @@ const SEED_SETTINGS = {
   nextInvoiceNumber: 90062,
   nextReceiptNumber: 20084,
   nextQuoteNumber: 50014,
+  // Optional: lets create.html auto-fill bank/branch/account/check-number/
+  // amount from a photographed check via Anthropic's API. Empty by default
+  // — nothing is sent anywhere unless the user pastes their own key in
+  // Settings. See recognizeCheckPhoto() below.
+  anthropicApiKey: "",
+  anthropicModel: "claude-sonnet-4-5-20250929",
 };
 
 /* No real client data ships in the public source (this repo is public on
@@ -397,6 +403,98 @@ function fileToStoredDataURL(file, maxDim = 1400, quality = 0.82) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+/* ---------------- Check-photo recognition (optional, cloud AI) ----------------
+   Used from create.html when the payment method is "צ'ק בנקאי": the user
+   photographs the check, this sends the image ONCE to Anthropic's API to
+   read bank/branch/account/check-number/amount off it, and the photo is
+   then discarded — never written to localStorage or anywhere else. This is
+   the one place in FlowCRM where image data leaves the browser to a third
+   party (the optional Google Drive sync goes to the user's OWN Drive, which
+   is different). Requires an API key the user pastes in Settings; without
+   one this throws instead of silently doing nothing, so the create.html
+   caller can tell the user why nothing happened.
+
+   Accuracy note, stated plainly rather than assumed: the printed line at
+   the bottom of an Israeli check (bank/branch/account) is encoded in the
+   CMC-7 magnetic font, not ordinary print, and the amount is often
+   handwritten. A vision model can often read the OTHER printed text on the
+   check (header, account holder, check number if printed in plain digits)
+   reasonably well, but there is no guarantee it reads the CMC-7 line or
+   handwriting correctly. The prompt below tells the model to return null
+   rather than guess, and create.html always shows a confirm/edit dialog
+   before anything is written into the document — never auto-accept. */
+async function recognizeCheckPhoto(base64Data, mediaType) {
+  const settings = DB.getSettings();
+  const apiKey = (settings.anthropicApiKey || "").trim();
+  if (!apiKey) {
+    throw new Error("לא הוגדר מפתח API של Anthropic. הגדירו אותו בהגדרות > זיהוי צ'קים.");
+  }
+  const model = (settings.anthropicModel || "claude-sonnet-4-5-20250929").trim();
+  const bankList = ISRAELI_BANKS.map(b => b.replace(/\s*\(\d+\)\s*$/, "")).join(", ");
+  const prompt = `זוהי תמונה של צ'ק בנקאי ישראלי. קרא את הפרטים שעל הצ'ק והחזר אך ורק אובייקט JSON יחיד, בלי שום טקסט נוסף לפני או אחרי, בפורמט המדויק הזה:
+{"bank": null, "branch": null, "account": null, "checkNumber": null, "amount": null}
+
+הנחיות מחייבות:
+- "bank": שם הבנק. אם אתה מזהה בביטחון גבוה שהוא אחד מהבנקים הבאים, החזר את השם המדויק מהרשימה: ${bankList}. אם אינך בטוח, או שהבנק אינו ברשימה, החזר null — אל תמציא שם.
+- "branch", "account", "checkNumber": מחרוזות עם הספרות בלבד, או null אם לא ברור.
+- "amount": מספר (ללא ₪ ובלי פסיקים), או null אם לא ברור.
+- חשוב: שורת המספרים המודפסת בשוליים התחתונים של הצ'ק (קודי בנק/סניף/חשבון) כתובה בפונט מגנטי מיוחד (CMC-7) שלא תמיד ניתן לקרוא בביטחון. אם אינך בטוח בקריאה שלך, החזר null לאותו שדה — עדיף null מתשובה שגויה.
+- אל תחזיר הסבר, markdown, או טקסט נוסף — רק את אובייקט ה-JSON.`;
+
+  let res;
+  try {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        // Required for calling the API directly from browser JS (no
+        // backend to proxy through, by design — see the file header).
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 400,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: mediaType, data: base64Data } },
+            { type: "text", text: prompt },
+          ],
+        }],
+      }),
+    });
+  } catch (e) {
+    throw new Error("לא הייתה אפשרות להתחבר ל-API (בדקו חיבור לאינטרנט).");
+  }
+
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json()).error?.message || ""; } catch (e) {}
+    if (res.status === 401) throw new Error("מפתח ה-API אינו תקין. בדקו אותו בהגדרות > זיהוי צ'קים.");
+    if (res.status === 404) throw new Error("שם המודל בהגדרות אינו תקין או לא נתמך עם המפתח הזה.");
+    throw new Error("קריאה ל-API נכשלה (שגיאה " + res.status + ")" + (detail ? ": " + detail : ""));
+  }
+  const data = await res.json();
+  const text = (data.content || []).map(b => b.text || "").join("");
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("התקבלה תשובה לא צפויה מה-API (לא נמצא JSON).");
+  let parsed;
+  try {
+    parsed = JSON.parse(match[0]);
+  } catch (e) {
+    throw new Error("לא ניתן היה לפענח את תשובת ה-API.");
+  }
+  return {
+    bank: parsed.bank || "",
+    branch: parsed.branch != null ? String(parsed.branch) : "",
+    account: parsed.account != null ? String(parsed.account) : "",
+    checkNumber: parsed.checkNumber != null ? String(parsed.checkNumber) : "",
+    amount: (typeof parsed.amount === "number" && !isNaN(parsed.amount)) ? parsed.amount : null,
+  };
 }
 
 function docBadge(docType) {
