@@ -347,7 +347,12 @@ if (closeOptions.length) {
       clientAddress: doc.clientAddress || "",
       items: doc.items || [],
       includeVat: !!doc.includeVat,
-      status: "open",
+      // A receipt is always "closed" (it IS the closing event) — same rule
+      // create.html enforces via autoStatus(). Without this, a receipt
+      // created here stayed "open" in the DB until/unless someone actually
+      // hit "שמור מסמך" on the redirect screen — easy to miss, and a real
+      // bug: a receipt is never supposed to be open.
+      status: targetType === "receipt" ? "closed" : "open",
       payments: [],
       noteBody: doc.noteBody || "",
       isCanceled: false,
