@@ -138,7 +138,14 @@ const DriveSync = (() => {
       const existing = document.getElementById("gis-script");
       if (existing) {
         existing.addEventListener("load", () => { gisLoaded = true; resolve(); });
-        existing.addEventListener("error", () => reject(new Error("לא ניתן לטעון את שירות ההתחברות של גוגל")));
+        // Remove a tag that errors — otherwise it just sits in the DOM, and
+        // a LATER retry's getElementById() finds this same already-failed
+        // tag and waits on "load"/"error" events that already fired once
+        // and will never fire again, hanging forever instead of retrying.
+        existing.addEventListener("error", () => {
+          existing.remove();
+          reject(new Error("לא ניתן לטעון את שירות ההתחברות של גוגל"));
+        });
         return;
       }
       const s = document.createElement("script");
@@ -147,9 +154,15 @@ const DriveSync = (() => {
       s.async = true;
       s.defer = true;
       s.onload = () => { gisLoaded = true; resolve(); };
-      s.onerror = () => reject(new Error("לא ניתן לטעון את שירות ההתחברות של גוגל"));
+      s.onerror = () => { s.remove(); reject(new Error("לא ניתן לטעון את שירות ההתחברות של גוגל")); };
       document.head.appendChild(s);
     });
+    // If this attempt fails, don't leave a rejected promise cached forever —
+    // clear it so the NEXT call (the real click, or another eager retry)
+    // gets a fresh attempt instead of instantly re-failing with the old
+    // error. See the eager preload in initOnLoad() below for why this path
+    // can run more than once.
+    gisLoadPromise = gisLoadPromise.catch((e) => { gisLoadPromise = null; throw e; });
     return gisLoadPromise;
   }
 
@@ -387,6 +400,21 @@ const DriveSync = (() => {
   }
 
   async function initOnLoad() {
+    // Start fetching Google's sign-in script NOW, on page load, regardless
+    // of configured/connected state — fire and forget, errors ignored here.
+    // Why this matters: requestTokenInteractive() (called from the real
+    // "התחברות עם Google" click) awaits loadGisScript() before opening the
+    // sign-in popup. If that await has to do a real network fetch (first
+    // time the script is needed), the popup-opening call no longer happens
+    // synchronously inside the click — and strict browsers, iOS Safari
+    // above all, then refuse to open it at all ("popup_failed_to_open").
+    // Preloading here means that by the time someone actually clicks
+    // connect, gisLoaded is already true and that same await resolves on
+    // the spot (a microtask, not a network round-trip), which keeps the
+    // click's "real user gesture" status intact. A real click still works
+    // on its own if this preload hasn't finished yet or failed — it just
+    // falls back to the slower path that caused the bug.
+    loadGisScript().catch(() => {});
     if (!isConfigured() || !isConnected()) return;
     // Background: only proceeds if a cached token is still valid. Does NOT
     // attempt to (re)acquire one — that would risk the exact
